@@ -11,11 +11,6 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Get n8n webhook URL from environment
-N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL')
-if not N8N_WEBHOOK_URL:
-    raise ValueError("N8N_WEBHOOK_URL environment variable is not set")
-
 app = FastAPI()
 
 def setup_logging():
@@ -66,7 +61,6 @@ async def get_news(pair: str) -> Dict:
 
 async def analyze_sentiment(content: str) -> Dict:
     # Simple sentiment analysis based on keywords
-    # You could replace this with a more sophisticated solution later
     bullish_words = ['bullish', 'surge', 'gain', 'rise', 'higher', 'positive']
     bearish_words = ['bearish', 'drop', 'fall', 'lower', 'negative', 'decline']
     
@@ -93,22 +87,6 @@ async def analyze_sentiment(content: str) -> Dict:
         "bullish_words": bullish_count,
         "bearish_words": bearish_count
     }
-
-async def send_to_n8n(data: Dict):
-    try:
-        async with aiohttp.ClientSession() as session:
-            logger.info(f"Sending data to n8n: {json.dumps(data, indent=2)}")
-            async with session.post(N8N_WEBHOOK_URL, json=data) as response:
-                if response.status >= 400:
-                    error_text = await response.text()
-                    raise HTTPException(
-                        status_code=response.status,
-                        detail=f"Error from n8n: {error_text}"
-                    )
-                return await response.json()
-    except Exception as e:
-        logger.error(f"Error sending to n8n: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 async def root():
@@ -146,12 +124,9 @@ async def receive_trading_signal(signal: Dict):
             "timestamp": signal.get('timestamp', None)
         }
         
-        # Send to n8n
-        await send_to_n8n(combined_data)
-        
         return {
             "status": "success",
-            "message": "Signal processed and sent to n8n",
+            "message": "Signal processed successfully",
             "data": combined_data
         }
     except Exception as e:
