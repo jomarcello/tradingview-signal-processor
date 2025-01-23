@@ -183,7 +183,7 @@ async def scrape_news(page, symbol):
     try:
         logger.info(f"Navigating to https://www.tradingview.com/symbols/{symbol}/news/")
         await page.goto(f'https://www.tradingview.com/symbols/{symbol}/news/',
-                       wait_until='domcontentloaded',  
+                       wait_until='domcontentloaded',
                        timeout=10000)
         
         logger.info("Waiting for news container")
@@ -196,6 +196,54 @@ async def scrape_news(page, symbol):
         logger.info("Taking screenshot of news page")
         await page.screenshot(path='/tmp/tradingview_news.png', full_page=True)
         
+        # Check if we need to click the sign in button on the news page
+        try:
+            logger.info("Checking for news page sign in button")
+            sign_in_button = await page.wait_for_selector(
+                'button[data-name="header-sign-in"]',
+                timeout=5000,
+                state='visible'
+            )
+            
+            if sign_in_button:
+                logger.info("Found news page sign in button, clicking it")
+                await sign_in_button.click()
+                
+                # Wait for the login form
+                logger.info("Waiting for login form")
+                email_input = await page.wait_for_selector(
+                    'input[name="username"]',
+                    timeout=5000,
+                    state='visible'
+                )
+                
+                if email_input:
+                    logger.info("Found email input, filling credentials")
+                    await email_input.fill(os.getenv('TRADINGVIEW_EMAIL'))
+                    
+                    # Find and fill password
+                    password_input = await page.wait_for_selector(
+                        'input[name="password"]',
+                        timeout=5000,
+                        state='visible'
+                    )
+                    await password_input.fill(os.getenv('TRADINGVIEW_PASSWORD'))
+                    
+                    # Click the sign in button
+                    submit_button = await page.wait_for_selector(
+                        'button[type="submit"]',
+                        timeout=5000,
+                        state='visible'
+                    )
+                    await submit_button.click()
+                    
+                    # Wait for navigation and content to load
+                    logger.info("Waiting for login to complete")
+                    await page.wait_for_load_state('networkidle')
+                    await page.wait_for_timeout(2000)  # Extra wait to ensure content loads
+        except Exception as e:
+            logger.warning(f"No news page sign in button found or error during sign in: {str(e)}")
+        
         # Wait for any news content with retry
         news_items = None
         retry_count = 0
@@ -204,10 +252,10 @@ async def scrape_news(page, symbol):
             try:
                 # Try different selectors based on actual HTML structure
                 for selector in [
-                    '.container-DmjQR0Aa',  
-                    '.container-HY0D0owe',  
-                    '[data-name="news-headline-title"]',  
-                    '.title-DmjQR0Aa'  
+                    '.container-DmjQR0Aa',
+                    '.container-HY0D0owe',
+                    '[data-name="news-headline-title"]',
+                    '.title-DmjQR0Aa'
                 ]:
                     try:
                         logger.info(f"Trying selector: {selector}")
@@ -216,7 +264,22 @@ async def scrape_news(page, symbol):
                         news_items = await page.query_selector_all(selector)
                         if news_items and len(news_items) > 0:
                             logger.info(f"Found {len(news_items)} news items with selector: {selector}")
-                            break
+                            
+                            # Check if we have non-exclusive news
+                            has_real_news = False
+                            for item in news_items[:3]:  # Check first 3 items
+                                title = await item.evaluate('(el) => el.textContent')
+                                logger.info(f"Checking title: {title}")
+                                if not "Sign in to read exclusive news" in title:
+                                    has_real_news = True
+                                    break
+                            
+                            if has_real_news:
+                                break
+                            else:
+                                logger.warning("Only found exclusive news, continuing search")
+                                news_items = None
+                                
                     except Exception as e:
                         logger.warning(f"Failed to find news with selector {selector}: {str(e)}")
                         continue
@@ -247,7 +310,7 @@ async def scrape_news(page, symbol):
             
         # Process the news items
         news_data = []
-        for item in news_items[:10]:  
+        for item in news_items[:10]:
             try:
                 # Get the article data using the exact class names
                 article_data = await page.evaluate('''(container) => {
@@ -256,15 +319,22 @@ async def scrape_news(page, symbol):
                     const dateEl = container.querySelector('relative-time');
                     const providerEl = container.querySelector('.provider-TUPxzdRV');
                     
+                    const title = titleEl ? titleEl.textContent.trim() : null;
+                    
+                    // Skip exclusive news
+                    if (title && title.includes("Sign in to read exclusive news")) {
+                        return null;
+                    }
+                    
                     return {
-                        title: titleEl ? titleEl.textContent.trim() : null,
+                        title: title,
                         date: dateEl ? dateEl.getAttribute('event-time') : null,
                         provider: providerEl ? providerEl.textContent.trim() : null,
                         html: container.outerHTML
                     };
                 }''', item)
                 
-                if article_data['title']:
+                if article_data and article_data['title']:
                     news_data.append(article_data)
                     logger.info(f"Found article: {article_data['title']}")
             except Exception as e:
