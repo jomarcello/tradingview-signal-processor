@@ -557,8 +557,10 @@ async def root():
 
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal):
+    logger.info("Starting to process trading signal")
     try:
         async with async_playwright() as p:
+            logger.info("Launching browser")
             # Launch browser with debug logging
             browser = await p.chromium.launch(
                 headless=True,
@@ -573,18 +575,26 @@ async def process_trading_signal(signal: TradingSignal):
                     '--disable-gpu'
                 ]
             )
+            logger.info("Browser launched successfully")
+
+            logger.info("Creating browser context")
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             )
             page = await context.new_page()
+            logger.info("Browser context created successfully")
             
             try:
+                logger.info("Attempting to login to TradingView")
                 # First login to TradingView
                 await login_to_tradingview(page)
+                logger.info("Login successful")
                 
+                logger.info("Starting to scrape news")
                 # Get news data
                 news_data = await scrape_news(page, signal.instrument)
+                logger.info(f"News data scraped successfully: {news_data}")
                 
                 # Return only the news data
                 return {
@@ -599,20 +609,23 @@ async def process_trading_signal(signal: TradingSignal):
                         "timestamp": signal.timestamp
                     }
                 }
-                
             except Exception as e:
-                logger.error(f"Error processing signal: {str(e)}")
+                logger.error(f"Error in processing: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error traceback: {traceback.format_exc()}")
                 return {
                     "status": "error",
                     "message": f"Error processing signal: {str(e)}",
                     "data": None
                 }
-            
             finally:
+                logger.info("Closing browser")
                 await browser.close()
                 
     except Exception as e:
         logger.error(f"Error launching browser: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error traceback: {traceback.format_exc()}")
         return {
             "status": "error",
             "message": f"Error launching browser: {str(e)}",
