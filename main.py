@@ -110,6 +110,17 @@ async def send_to_n8n(data: Dict):
         logger.error(f"Error sending to n8n: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "message": "TradingView Signal Processor API",
+        "endpoints": {
+            "POST /trading-signal": "Process trading signals and news",
+            "GET /health": "Health check"
+        }
+    }
+
 @app.post("/trading-signal")
 async def receive_trading_signal(signal: Dict):
     try:
