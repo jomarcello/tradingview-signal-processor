@@ -97,7 +97,12 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Take screenshot for debugging
                 logger.info("Taking screenshot")
-                await page.screenshot(path='/tmp/debug.png')
+                await page.screenshot(path='/tmp/debug.png', full_page=True)
+                
+                # Get page content for debugging
+                logger.info("Getting page content")
+                page_content = await page.content()
+                logger.info(f"Page content: {page_content[:1000]}...")
                 
                 # Wait for news feed with retry
                 logger.info("Waiting for news feed")
