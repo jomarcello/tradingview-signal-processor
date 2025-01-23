@@ -252,6 +252,7 @@ async def scrape_news(page, symbol):
             try:
                 # Try different selectors based on actual HTML structure
                 for selector in [
+                    'a[href*="/news/"].card-HY0D0owe',  # New selector for news cards
                     '.container-DmjQR0Aa',
                     '.container-HY0D0owe',
                     '[data-name="news-headline-title"]',
@@ -268,11 +269,12 @@ async def scrape_news(page, symbol):
                             # Check if we have non-exclusive news
                             has_real_news = False
                             for item in news_items[:3]:  # Check first 3 items
-                                title = await item.evaluate('(el) => el.textContent')
-                                logger.info(f"Checking title: {title}")
-                                if not "Sign in to read exclusive news" in title:
-                                    has_real_news = True
-                                    break
+                                title = await item.evaluate('(el) => el.querySelector("[data-name=news-headline-title]")?.textContent')
+                                if title:
+                                    logger.info(f"Checking title: {title}")
+                                    if not "Sign in to read exclusive news" in title:
+                                        has_real_news = True
+                                        break
                             
                             if has_real_news:
                                 break
@@ -310,14 +312,14 @@ async def scrape_news(page, symbol):
             
         # Process the news items
         news_data = []
-        for item in news_items[:10]:
+        for item in news_items[:3]:  # Get latest 3 articles
             try:
                 # Get the article data using the exact class names
                 article_data = await page.evaluate('''(container) => {
-                    const titleEl = container.querySelector('[data-name="news-headline-title"]') || 
-                                  container.querySelector('.title-DmjQR0Aa');
+                    const titleEl = container.querySelector('[data-name="news-headline-title"]');
                     const dateEl = container.querySelector('relative-time');
                     const providerEl = container.querySelector('.provider-TUPxzdRV');
+                    const articleUrl = container.href || container.closest('a')?.href;
                     
                     const title = titleEl ? titleEl.textContent.trim() : null;
                     
@@ -325,10 +327,6 @@ async def scrape_news(page, symbol):
                     if (title && title.includes("Sign in to read exclusive news")) {
                         return null;
                     }
-                    
-                    // Get article link
-                    const linkEl = container.closest('a');
-                    const articleUrl = linkEl ? linkEl.href : null;
                     
                     return {
                         title: title,
@@ -355,9 +353,9 @@ async def scrape_news(page, symbol):
                     # Wait for article content with different selectors
                     article_content = None
                     for selector in [
+                        'article',
                         '.content-HY0D0owe',
                         '.content-DmjQR0Aa',
-                        'article',
                         '.article-content',
                         '[data-name="news-text"]',
                         '.news-text'
