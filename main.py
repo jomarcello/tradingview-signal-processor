@@ -112,71 +112,47 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Click user icon to open login modal
                 logger.info("Looking for user menu button")
-                user_menu = await page.query_selector('button[aria-label="Open user menu"]')
-                if user_menu:
-                    logger.info("Found user menu button")
-                    await user_menu.click(timeout=60000)
-                else:
-                    logger.error("Could not find user menu button")
-                    raise Exception("User menu button not found")
+                await page.wait_for_selector('button[aria-label="Open user menu"]', timeout=60000)
+                await page.click('button[aria-label="Open user menu"]', timeout=60000)
+                logger.info("Clicked user menu button")
                 
                 # Wait a bit for the menu to open
                 await page.wait_for_timeout(2000)
                 
                 # Click "Sign in" button
                 logger.info("Looking for sign in button")
-                sign_in = await page.query_selector('button:has-text("Sign in")')
-                if sign_in:
-                    logger.info("Found sign in button")
-                    await sign_in.click(timeout=60000)
-                else:
-                    logger.error("Could not find sign in button")
-                    raise Exception("Sign in button not found")
+                await page.wait_for_selector('text=Sign in', timeout=60000)
+                await page.click('text=Sign in', timeout=60000)
+                logger.info("Clicked sign in button")
                 
                 # Wait a bit for the dialog to open
                 await page.wait_for_timeout(2000)
                 
                 # Click email button
                 logger.info("Looking for email button")
-                email_button = await page.query_selector('button[name="Email"]')
-                if email_button:
-                    logger.info("Found email button")
-                    await email_button.click(timeout=60000)
-                else:
-                    logger.error("Could not find email button")
-                    raise Exception("Email button not found")
+                await page.wait_for_selector('button[name="Email"]', timeout=60000)
+                await page.click('button[name="Email"]', timeout=60000)
+                logger.info("Clicked email button")
                 
                 # Wait a bit for the form to load
                 await page.wait_for_timeout(2000)
                 
                 # Fill in credentials
                 logger.info("Looking for username field")
-                username_field = await page.query_selector('input[name="username"]')
-                if username_field:
-                    logger.info("Found username field")
-                    await username_field.fill(os.getenv("TRADINGVIEW_EMAIL"), timeout=60000)
-                else:
-                    logger.error("Could not find username field")
-                    raise Exception("Username field not found")
+                await page.wait_for_selector('#id_username', timeout=60000)
+                await page.fill('#id_username', os.getenv("TRADINGVIEW_EMAIL"), timeout=60000)
+                logger.info("Filled username")
                 
                 logger.info("Looking for password field")
-                password_field = await page.query_selector('input[name="password"]')
-                if password_field:
-                    logger.info("Found password field")
-                    await password_field.fill(os.getenv("TRADINGVIEW_PASSWORD"), timeout=60000)
-                else:
-                    logger.error("Could not find password field")
-                    raise Exception("Password field not found")
+                await page.wait_for_selector('#id_password', timeout=60000)
+                await page.fill('#id_password', os.getenv("TRADINGVIEW_PASSWORD"), timeout=60000)
+                logger.info("Filled password")
                 
                 # Submit form
                 logger.info("Looking for submit button")
-                submit_button = await page.query_selector('button[type="submit"]')
-                if submit_button:
-                    logger.info("Found submit button")
-                    await submit_button.click(timeout=60000)
-                else:
-                    logger.error("Could not find submit button")
-                    raise Exception("Submit button not found")
+                await page.wait_for_selector('button[type="submit"]', timeout=60000)
+                await page.click('button[type="submit"]', timeout=60000)
+                logger.info("Clicked submit button")
                 
                 await page.wait_for_load_state('load', timeout=120000)
                 
