@@ -92,8 +92,16 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 # Go directly to news page
                 logger.info("Going to news page")
                 url = f'https://www.tradingview.com/symbols/{instrument}/news/'
-                await page.goto(url, wait_until='load', timeout=30000)  # Reduced timeout, only wait for load
-                logger.info("News page loaded")
+                await page.goto(url, wait_until='load', timeout=60000)  # Increased timeout
+                
+                # Wait a bit and scroll
+                logger.info("Waiting for page to settle")
+                await page.wait_for_timeout(5000)  # Wait 5 seconds
+                
+                # Scroll down to load dynamic content
+                logger.info("Scrolling page")
+                await page.evaluate('window.scrollBy(0, 500)')
+                await page.wait_for_timeout(2000)  # Wait after scroll
                 
                 # Take screenshot for debugging
                 logger.info("Taking screenshot")
@@ -109,23 +117,34 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)  # Reduced timeout
+                        # Try different selectors
+                        selectors = [
+                            '.title-HY0D0owe',
+                            '[data-name="news-headline-title"]',
+                            '.title-DmjQR0Aa',
+                            'a[href*="/news/"]'  # Any link containing /news/
+                        ]
+                        
+                        for selector in selectors:
+                            try:
+                                logger.info(f"Trying selector: {selector}")
+                                await page.wait_for_selector(selector, timeout=10000)
+                                logger.info(f"Found selector: {selector}")
+                                break
+                            except Exception:
+                                continue
                         break
                     except Exception as e:
                         if attempt == max_retries - 1:
                             raise
                         logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
-                        await page.reload(wait_until='load', timeout=30000)  # Also reduced timeout here
+                        await page.reload(wait_until='load', timeout=60000)
+                        await page.wait_for_timeout(5000)
+                        await page.evaluate('window.scrollBy(0, 500)')
+                        await page.wait_for_timeout(2000)
                 
                 # Get first 3 news articles
                 articles = []
-                
-                # Try different selectors for news items
-                selectors = [
-                    '.title-HY0D0owe',  # Original selector
-                    '[data-name="news-headline-title"]',  # Alternative selector
-                    '.title-DmjQR0Aa'  # Another alternative
-                ]
                 
                 news_items = None
                 for selector in selectors:
@@ -141,7 +160,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 if not news_items:
                     raise Exception("Could not find news items with any selector")
                 
-                for i, item in enumerate(news_items[:3]):  # Only get first 3 articles
+                for i, item in enumerate(news_items):  # Return all articles
                     try:
                         # Get parent element that contains the link
                         parent = await item.evaluate('element => element.closest("a")')
@@ -255,7 +274,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                     "instrument": signal.instrument,
                     "timestamp": signal.timestamp
                 },
-                "news": news_data,  # Return all 3 articles
+                "news": news_data,  # Return all articles
                 "timestamp": signal.timestamp
             }
         }
