@@ -332,8 +332,7 @@ async def scrape_news(page, symbol):
                         title: title,
                         date: dateEl ? dateEl.getAttribute('event-time') : null,
                         provider: providerEl ? providerEl.textContent.trim() : null,
-                        url: articleUrl,
-                        html: container.outerHTML
+                        url: articleUrl
                     };
                 }''', item)
                 
@@ -350,31 +349,53 @@ async def scrape_news(page, symbol):
                     logger.info("Taking screenshot of article page")
                     await page.screenshot(path='/tmp/tradingview_article.png', full_page=True)
                     
-                    # Wait for article content with different selectors
+                    # Extract text content from article
                     article_content = None
-                    for selector in [
-                        'article',
-                        '.content-HY0D0owe',
-                        '.content-DmjQR0Aa',
-                        '.article-content',
-                        '[data-name="news-text"]',
-                        '.news-text'
-                    ]:
-                        try:
-                            logger.info(f"Trying article selector: {selector}")
-                            article_content = await page.wait_for_selector(selector, timeout=5000)
-                            if article_content:
-                                logger.info(f"Found article content with selector: {selector}")
-                                break
-                        except Exception as e:
-                            logger.warning(f"Failed to find article content with selector {selector}: {str(e)}")
-                    
-                    if article_content:
-                        article_data['html'] = await article_content.evaluate('el => el.outerHTML')
-                        logger.info("Successfully retrieved full article content")
-                    else:
-                        logger.warning("Could not find article content, using page content")
-                        article_data['html'] = await page.evaluate('() => document.body.innerHTML')
+                    try:
+                        # First try to get the article body
+                        article_content = await page.evaluate('''() => {
+                            // Try different selectors for article content
+                            const selectors = [
+                                'article p',  // Get all paragraphs inside article
+                                '.body-KX2tCBZq p',  // Alternative class
+                                '.content-pIO_GYwT p',  // Another alternative
+                                'article li',  // List items in article
+                                '.body-KX2tCBZq li'  // List items in body
+                            ];
+                            
+                            let textContent = [];
+                            
+                            // Try each selector
+                            for (const selector of selectors) {
+                                const elements = document.querySelectorAll(selector);
+                                if (elements.length > 0) {
+                                    elements.forEach(el => {
+                                        const text = el.textContent.trim();
+                                        if (text) textContent.push(text);
+                                    });
+                                }
+                            }
+                            
+                            // Get key points if available
+                            const keyPoints = document.querySelector('.summary-pIO_GYwT');
+                            if (keyPoints) {
+                                const keyPointsText = keyPoints.textContent.trim();
+                                if (keyPointsText) textContent.unshift("Key points:", keyPointsText);
+                            }
+                            
+                            return textContent.join('\n\n');
+                        }''')
+                        
+                        if article_content:
+                            article_data['content'] = article_content
+                            logger.info("Successfully retrieved article text content")
+                        else:
+                            logger.warning("Could not find article content")
+                            article_data['content'] = "No content found"
+                            
+                    except Exception as e:
+                        logger.warning(f"Error extracting article text: {str(e)}")
+                        article_data['content'] = "Error extracting content"
                     
                     news_data.append(article_data)
                     logger.info(f"Found article: {article_data['title']}")
@@ -423,7 +444,7 @@ async def get_news(pair: str) -> Dict:
             logger.info("Successfully scraped news")
             return {
                 "title": news_data[0]['title'],
-                "content": news_data[0]['html'],
+                "content": news_data[0]['content'],
                 "url": f"https://www.tradingview.com/symbols/{symbol}/news/"
             }
         except Exception as e:
@@ -524,14 +545,14 @@ async def process_trading_signal(signal: TradingSignal):
                 news_data = await scrape_news(page, signal.instrument)
                 
                 # Analyze sentiment
-                sentiment = await analyze_sentiment(news_data[0]['html'])
+                sentiment = await analyze_sentiment(news_data[0]['content'])
                 
                 # Combine all data
                 combined_data = {
                     "signal": signal.dict(),
                     "news": {
                         "title": news_data[0]['title'],
-                        "content": news_data[0]['html'],
+                        "content": news_data[0]['content'],
                         "url": f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
                     },
                     "sentiment": sentiment,
