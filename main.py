@@ -112,12 +112,12 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
                         await page.reload(wait_until='load', timeout=30000)  # Also reduced timeout here
                 
-                # Get all news articles
+                # Get first 3 news articles
                 articles = []
                 news_items = await page.query_selector_all('.title-HY0D0owe')
                 logger.info(f"Found {len(news_items)} news items")
                 
-                for item in news_items:  
+                for item in news_items[:3]:  # Only get first 3 articles
                     try:
                         title = await item.get_attribute('data-overflow-tooltip-text')
                         if title:
@@ -148,12 +148,15 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
         raise
 
 @app.post("/trading-signal")
-async def process_trading_signal(signal: TradingSignal):
-    """Process a trading signal and retrieve relevant news"""
+async def process_trading_signal(signal: TradingSignal) -> dict:
+    """Process a trading signal and return relevant news."""
     try:
-        news_data = await get_news_with_playwright(signal.instrument)
-        logger.info(f"News data scraped successfully: {news_data}")
+        logger.info(f"Processing signal for {signal.instrument}")
         
+        # Get news for the instrument
+        news_data = await get_news_with_playwright(signal.instrument)
+        
+        # Return all news articles
         return {
             "status": "success",
             "message": "Signal processed successfully",
@@ -162,15 +165,15 @@ async def process_trading_signal(signal: TradingSignal):
                     "instrument": signal.instrument,
                     "timestamp": signal.timestamp
                 },
-                "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
+                "news": news_data,  # Return all 3 articles
                 "timestamp": signal.timestamp
             }
         }
-        
     except Exception as e:
         logger.error(f"Error in processing: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
+        
         return {
             "status": "error",
             "message": f"Error processing signal: {str(e)}",
