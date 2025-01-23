@@ -558,9 +558,35 @@ async def root():
 async def process_trading_signal(signal: TradingSignal):
     try:
         async with async_playwright() as p:
-            # Launch browser
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
+            # Launch browser with optimized settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-gpu',
+                    '--disable-dev-shm-usage',
+                    '--disable-setuid-sandbox',
+                    '--no-sandbox',
+                    '--disable-extensions',
+                    '--disable-notifications',
+                    '--disable-geolocation'
+                ]
+            )
+            
+            # Create a new context with specific settings
+            context = await browser.new_context(
+                viewport={'width': 1280, 'height': 720},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                java_script_enabled=True,
+                bypass_csp=True,
+                ignore_https_errors=True
+            )
+
+            # Add route to block unnecessary resources
+            await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,otf,eot}", lambda route: route.abort())
+            await context.route("**/{analytics,tracking,advertisement}**", lambda route: route.abort())
+            
+            # Create new page
+            page = await context.new_page()
             
             # First login to TradingView
             await login_to_tradingview(page)
