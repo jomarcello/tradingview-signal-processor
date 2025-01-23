@@ -66,28 +66,39 @@ async def login_to_tradingview(page):
                     '[data-name="header-signin-button"]',
                     'button.tv-header__user-menu-button--signin',
                     '.tv-header__user-menu-button--signin',
-                    'button.tv-header__user-menu-button',
-                    '.js-header-sign-in'
+                    '.js-header-sign-in',
+                    'a[href="/sign-in/"]',
+                    'button:has-text("Sign In")',
+                    'a:has-text("Sign In")'
                 ]:
                     try:
-                        # First check if element exists
+                        # First check if element exists and is a sign in button
                         exists = await page.evaluate(f'''(selector) => {{
                             const el = document.querySelector(selector);
                             if (el) {{
+                                const text = el.textContent.toLowerCase();
+                                const isSignIn = text.includes('sign in') || 
+                                               text.includes('login') ||
+                                               el.href?.includes('sign-in');
+                                               
                                 console.log('Found element:', {{
                                     selector,
                                     html: el.outerHTML,
+                                    text: text,
+                                    isSignIn,
                                     visible: el.offsetParent !== null
                                 }});
+                                
+                                return isSignIn;
                             }}
-                            return !!el;
+                            return false;
                         }}''', selector)
                         
                         if exists:
-                            logger.info(f"Element exists with selector: {selector}")
+                            logger.info(f"Found sign in element with selector: {selector}")
                             header_signin = await page.wait_for_selector(selector, timeout=3000, state='visible')
                             if header_signin:
-                                logger.info(f"Found visible header sign in button with selector: {selector}")
+                                logger.info(f"Found visible sign in button with selector: {selector}")
                                 break
                     except Exception as e:
                         logger.warning(f"Failed to find element with selector {selector}: {str(e)}")
@@ -101,6 +112,28 @@ async def login_to_tradingview(page):
                 page_content = await page.content()
                 logger.info(f"Page title: {await page.title()}")
                 logger.info(f"Page URL: {page.url}")
+                
+                # Search for any sign in related elements
+                sign_in_elements = await page.evaluate('''() => {
+                    const elements = [];
+                    document.querySelectorAll('a, button').forEach(el => {
+                        const text = el.textContent.toLowerCase();
+                        if (text.includes('sign in') || text.includes('login')) {
+                            elements.push({
+                                tag: el.tagName,
+                                text: text,
+                                html: el.outerHTML,
+                                visible: el.offsetParent !== null
+                            });
+                        }
+                    });
+                    return elements;
+                }''')
+                
+                if sign_in_elements:
+                    logger.info(f"Found {len(sign_in_elements)} potential sign in elements:")
+                    for el in sign_in_elements:
+                        logger.info(f"  {el}")
                 
                 # Take another screenshot
                 logger.info("Taking screenshot after attempt")
@@ -118,8 +151,42 @@ async def login_to_tradingview(page):
         if header_signin:
             logger.info("Clicking header sign in button")
             await header_signin.click()
-            # Wait for the modal to appear
-            await page.wait_for_selector('[data-dialog-name="sign-in-dialog"]', timeout=5000)
+            
+            # Wait for the modal with retry
+            logger.info("Waiting for sign in modal")
+            modal = None
+            modal_retry = 0
+            
+            while modal_retry < 3 and not modal:
+                try:
+                    for modal_selector in [
+                        '[data-dialog-name="sign-in-dialog"]',
+                        '.tv-dialog--signin',
+                        'form[class*="SignInForm"]',
+                        '.js-dialog__signin-form'
+                    ]:
+                        try:
+                            modal = await page.wait_for_selector(modal_selector, timeout=3000)
+                            if modal:
+                                logger.info(f"Found sign in modal with selector: {modal_selector}")
+                                break
+                        except:
+                            continue
+                            
+                    if modal:
+                        break
+                        
+                except Exception as e:
+                    modal_retry += 1
+                    logger.warning(f"Retry {modal_retry}: Error finding sign in modal: {str(e)}")
+                    await page.wait_for_timeout(1000)
+            
+            if not modal:
+                # If modal not found, try direct URL
+                logger.info("Modal not found, trying direct sign in URL")
+                await page.goto('https://www.tradingview.com/accounts/signin/', 
+                              wait_until='networkidle',
+                              timeout=10000)
         else:
             # If header button not found, try direct URL
             logger.info("Header button not found, trying direct sign in URL")
