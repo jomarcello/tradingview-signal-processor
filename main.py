@@ -42,7 +42,8 @@ async def login_to_tradingview(page):
         loaded_resources = set()
         required_resources = {
             'auth_page_tvd',
-            'runtime'
+            'runtime',
+            'signin-dialog'
         }
 
         def log_request(request):
@@ -58,63 +59,127 @@ async def login_to_tradingview(page):
         # Go directly to the email sign in page
         logger.info("Going to email sign in page")
         await page.goto('https://www.tradingview.com/accounts/signin/', 
-                       wait_until='domcontentloaded',
-                       timeout=5000)
+                       wait_until='networkidle',
+                       timeout=10000)
         
-        # Wait for required resources with shorter timeout
+        # Wait for required resources with retry
         logger.info("Waiting for required resources to load")
-        timeout = time.time() + 5  # 5 second timeout
-        while len(loaded_resources) < len(required_resources) and time.time() < timeout:
-            await page.wait_for_timeout(100)
+        retry_count = 0
+        max_retries = 3
         
-        # Try to fill the form using JavaScript immediately
+        while retry_count < max_retries:
+            timeout = time.time() + 5
+            while len(loaded_resources) < len(required_resources) and time.time() < timeout:
+                await page.wait_for_timeout(100)
+                
+            if len(loaded_resources) >= len(required_resources):
+                break
+                
+            logger.warning(f"Retry {retry_count + 1}: Missing resources: {required_resources - loaded_resources}")
+            retry_count += 1
+            
+            if retry_count < max_retries:
+                await page.reload()
+        
+        # Wait for the sign-in form to be ready
+        logger.info("Waiting for sign-in form")
+        try:
+            # First try the email form
+            await page.wait_for_selector('form[class*="SignInForm"]', timeout=5000)
+        except:
+            try:
+                # Then try the dialog
+                await page.wait_for_selector('[data-dialog-name*="sign"]', timeout=5000)
+            except:
+                # Finally try any form
+                await page.wait_for_selector('form', timeout=5000)
+        
+        # Try to fill the form using JavaScript with retry
         logger.info("Attempting to fill form using JavaScript")
         fill_result = await page.evaluate(f'''() => {{
-            function findInput() {{
-                return document.querySelector('input[type="email"]') || 
-                       document.querySelector('input[type="text"]');
+            function sleep(ms) {{
+                return new Promise(resolve => setTimeout(resolve, ms));
             }}
-
-            function findPasswordInput() {{
-                return document.querySelector('input[type="password"]');
-            }}
-
-            function findSubmitButton() {{
-                return document.querySelector('button[type="submit"]') ||
-                       document.querySelector('button.tv-button--primary');
-            }}
-
-            const emailInput = findInput();
-            const passwordInput = findPasswordInput();
-            const submitButton = findSubmitButton();
-
-            if (!emailInput || !passwordInput || !submitButton) {{
-                return {{
-                    success: false,
-                    error: 'Missing elements',
-                    found: {{
-                        email: !!emailInput,
-                        password: !!passwordInput,
-                        submit: !!submitButton
-                    }}
-                }};
-            }}
-
-            emailInput.value = '{TRADINGVIEW_EMAIL}';
-            passwordInput.value = '{TRADINGVIEW_PASSWORD}';
-            submitButton.click();
             
-            return {{ success: true }};
+            async function findElements(maxAttempts = 5) {{
+                for (let attempt = 0; attempt < maxAttempts; attempt++) {{
+                    // Try different strategies to find the email input
+                    const emailInput = document.querySelector('input[type="email"]') || 
+                                     document.querySelector('input[name="username"]') ||
+                                     document.querySelector('input[type="text"]');
+                                     
+                    const passwordInput = document.querySelector('input[type="password"]') ||
+                                        document.querySelector('input[name="password"]');
+                                        
+                    const submitButton = document.querySelector('button[type="submit"]') ||
+                                       document.querySelector('button.tv-button--primary') ||
+                                       Array.from(document.querySelectorAll('button')).find(b => 
+                                           b.textContent.toLowerCase().includes('sign in') ||
+                                           b.textContent.toLowerCase().includes('login')
+                                       );
+                    
+                    if (emailInput && passwordInput && submitButton) {{
+                        return {{ emailInput, passwordInput, submitButton }};
+                    }}
+                    
+                    // Wait before next attempt
+                    await sleep(1000);
+                }}
+                
+                return null;
+            }}
+            
+            return findElements().then(elements => {{
+                if (!elements) {{
+                    return {{
+                        success: false,
+                        error: 'Could not find elements after multiple attempts'
+                    }};
+                }}
+                
+                const {{ emailInput, passwordInput, submitButton }} = elements;
+                
+                // Fill in the form
+                emailInput.value = '{os.getenv("TRADINGVIEW_EMAIL")}';
+                emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                
+                passwordInput.value = '{os.getenv("TRADINGVIEW_PASSWORD")}';
+                passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                
+                // Small delay before clicking
+                return sleep(500).then(() => {{
+                    submitButton.click();
+                    return {{ 
+                        success: true,
+                        elements: {{
+                            email: emailInput.outerHTML,
+                            password: passwordInput.outerHTML,
+                            submit: submitButton.outerHTML
+                        }}
+                    }};
+                }});
+            }});
         }}''')
         
+        logger.info(f"Form fill result: {fill_result}")
+        
         if not fill_result.get('success'):
-            logger.error(f"Failed to fill form: {fill_result}")
-            raise Exception("Could not find all form elements")
+            raise Exception(f"Could not find form elements: {fill_result.get('error')}")
             
-        # Wait for login to complete with shorter timeout
+        # Wait for login to complete with retry
         logger.info("Waiting for login to complete")
-        await page.wait_for_selector('.tv-header__user-menu-button', timeout=3000)
-        logger.info("Successfully logged in to TradingView")
+        retry_count = 0
+        while retry_count < 3:
+            try:
+                await page.wait_for_selector('.tv-header__user-menu-button', timeout=3000)
+                logger.info("Successfully logged in to TradingView")
+                return
+            except Exception as e:
+                retry_count += 1
+                if retry_count == 3:
+                    raise Exception("Login verification failed after retries")
+                logger.warning(f"Retry {retry_count}: Waiting for login completion")
+                await page.wait_for_timeout(1000)
         
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
