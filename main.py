@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import traceback
-from typing import Optional
+from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
@@ -11,6 +11,7 @@ from python_socks.async_.asyncio import Proxy
 import asyncio
 from datetime import datetime
 import pytz
+from bs4 import BeautifulSoup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -45,243 +46,127 @@ async def get_rotating_proxy():
         'password': PROXY_PASSWORD
     }
 
-async def login_to_tradingview_with_requests():
-    """Login to TradingView using aiohttp"""
-    logger.info("Starting login with requests")
+async def login_to_tradingview():
+    """Login to TradingView using Playwright's built-in authentication"""
+    logger.info("Starting login with Playwright")
     
-    # Get proxy configuration
-    proxy = await get_rotating_proxy()
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=[
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu',
+                '--disable-extensions',
+                '--disable-software-rasterizer',
+                '--disable-features=site-per-process',
+                '--js-flags=--max-old-space-size=500'  # Limit JS heap size
+            ])
+            context = await browser.new_context(
+                viewport={'width': 1024, 'height': 768},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            
+            # Enable request interception
+            await context.route("**/*", lambda route: route.continue_())
+            
+            page = await context.new_page()
+            
+            # Go to login page
+            await page.goto('https://www.tradingview.com/#signin', wait_until='networkidle')
+            
+            # Fill in credentials
+            await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"))
+            await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"))
+            
+            # Click sign in button and wait for navigation
+            await page.click('button[type="submit"]')
+            await page.wait_for_load_state('networkidle')
+            
+            # Get cookies after successful login
+            cookies = await context.cookies()
+            cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+            
+            await context.close()
+            await browser.close()
+            
+            return cookie_dict
+            
+    except Exception as e:
+        logger.error(f"Login failed: {str(e)}")
+        raise
+
+async def get_news_for_instrument(instrument: str) -> List[dict]:
+    """Get news for a specific instrument"""
+    logger.info(f"Getting news for {instrument}")
     
-    # Setup session with proxy if available
-    session_kwargs = {
-        'timeout': aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-    }
-    if proxy:
-        session_kwargs['proxy'] = proxy['server']
-        session_kwargs['proxy_auth'] = aiohttp.BasicAuth(proxy['username'], proxy['password'])
-    
-    async with aiohttp.ClientSession(**session_kwargs) as session:
-        try:
-            # First get the CSRF token
+    try:
+        # Get cookies from successful login
+        cookies = await login_to_tradingview()
+        
+        # Use cookies for subsequent requests
+        async with aiohttp.ClientSession(cookies=cookies) as session:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0'
             }
             
-            async with session.get('https://www.tradingview.com/accounts/signin/', headers=headers) as response:
-                text = await response.text()
-                csrf_token = None
-                for line in text.split('\n'):
-                    if 'csrf-token' in line:
-                        csrf_token = line.split('content="')[1].split('"')[0]
-                        break
-                
-                if not csrf_token:
-                    raise Exception("Could not find CSRF token")
-                
-                logger.info("Got CSRF token")
-                
-                # Now login with the token
-                headers.update({
-                    'Origin': 'https://www.tradingview.com',
-                    'Referer': 'https://www.tradingview.com/accounts/signin/',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRFToken': csrf_token,
-                    'X-Requested-With': 'XMLHttpRequest'
-                })
-                
-                data = {
-                    'username': os.getenv("TRADINGVIEW_EMAIL"),
-                    'password': os.getenv("TRADINGVIEW_PASSWORD"),
-                    'remember': 'on'
-                }
-                
-                async with session.post(
-                    'https://www.tradingview.com/accounts/signin/',
-                    headers=headers,
-                    data=data,
-                    timeout=REQUEST_TIMEOUT
-                ) as login_response:
-                    if login_response.status == 200:
-                        logger.info("Login successful")
-                        cookies = login_response.cookies
-                        return {cookie.key: cookie.value for cookie in cookies.values()}
-                    else:
-                        raise Exception(f"Login failed with status {login_response.status}")
+            url = f'https://www.tradingview.com/news/?symbol={instrument}'
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    # Extract news articles using BeautifulSoup
+                    soup = BeautifulSoup(html, 'html.parser')
+                    articles = []
                     
-        except asyncio.TimeoutError:
-            logger.error("Login request timed out")
-            raise Exception("Login request timed out")
-        except Exception as e:
-            logger.error(f"Login failed: {str(e)}")
-            raise
-
-async def scrape_news(page, symbol):
-    """Scrape news for a given symbol with retry logic"""
-    for attempt in range(MAX_RETRIES):
-        try:
-            logger.info(f"Scraping news attempt {attempt + 1}/{MAX_RETRIES}")
-            
-            # Go to the news page for the symbol
-            url = f"https://www.tradingview.com/symbols/{symbol}/news/"
-            logger.info(f"Navigating to {url}")
-            
-            await page.goto(url, timeout=REQUEST_TIMEOUT * 1000)
-            await page.wait_for_load_state('networkidle', timeout=REQUEST_TIMEOUT * 1000)
-            
-            # Wait for news container with increased timeout
-            await page.wait_for_selector('.card-HY0D0owe', timeout=REQUEST_TIMEOUT * 1000)
-            
-            # Get all news items
-            news_items = await page.query_selector_all('.card-HY0D0owe')
-            
-            if not news_items:
-                logger.warning("No news items found")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(2)  # Wait before retry
-                    continue
-                return []
-            
-            # Get first news item
-            first_news = news_items[0]
-            
-            # Get title
-            title_el = await first_news.query_selector('[data-name="news-headline-title"]')
-            title = await title_el.text_content() if title_el else "No title"
-            
-            # Get link and navigate to article
-            href = await first_news.get_attribute('href')
-            article_url = f"https://www.tradingview.com{href}"
-            
-            await page.goto(article_url, timeout=REQUEST_TIMEOUT * 1000)
-            await page.wait_for_load_state('networkidle', timeout=REQUEST_TIMEOUT * 1000)
-            
-            # Wait for article content
-            article = await page.wait_for_selector('article', timeout=REQUEST_TIMEOUT * 1000)
-            content = await article.text_content()
-            
-            return [{
-                "title": title.strip(),
-                "content": content.strip(),
-                "url": article_url
-            }]
-            
-        except Exception as e:
-            logger.error(f"Error scraping news (attempt {attempt + 1}): {str(e)}")
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(2)  # Wait before retry
-            else:
-                raise
+                    for article in soup.select('.news-feed article'):
+                        title = article.select_one('.news-feed__title')
+                        content = article.select_one('.news-feed__content')
+                        if title and content:
+                            articles.append({
+                                'title': title.text.strip(),
+                                'content': content.text.strip()
+                            })
+                    
+                    return articles
+                else:
+                    raise Exception(f"Failed to get news: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"Failed to get news: {str(e)}")
+        raise
 
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal):
     logger.info("Starting to process trading signal")
     try:
-        # First login with requests
-        cookies = await login_to_tradingview_with_requests()
-        logger.info("Got cookies from login")
+        news_data = await get_news_for_instrument(signal.instrument)
+        logger.info(f"News data scraped successfully: {news_data}")
         
-        # Get proxy configuration
-        proxy = await get_rotating_proxy()
-        
-        async with async_playwright() as p:
-            logger.info("Launching browser")
-            
-            # Configure browser launch options
-            browser_kwargs = {
-                'headless': True,
-                'args': [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu',
-                    '--disable-extensions',
-                    '--disable-software-rasterizer',
-                    '--disable-features=site-per-process',
-                    '--js-flags=--max-old-space-size=500'  # Limit JS heap size
-                ]
+        return {
+            "status": "success",
+            "message": "Signal processed successfully",
+            "data": {
+                "signal": {
+                    "instrument": signal.instrument,
+                    "timestamp": signal.timestamp
+                },
+                "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
+                "timestamp": signal.timestamp
             }
-            
-            # Add proxy if available
-            if proxy:
-                browser_kwargs['proxy'] = {
-                    'server': proxy['server'],
-                    'username': proxy['username'],
-                    'password': proxy['password']
-                }
-            
-            browser = await p.chromium.launch(**browser_kwargs)
-            logger.info("Browser launched successfully")
-
-            logger.info("Creating browser context")
-            context = await browser.new_context(
-                viewport={'width': 1024, 'height': 768},  # Reduced viewport size
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                bypass_csp=True  # Bypass Content Security Policy
-            )
-            
-            # Add cookies from login
-            for name, value in cookies.items():
-                await context.add_cookies([{
-                    'name': name,
-                    'value': value,
-                    'domain': '.tradingview.com',
-                    'path': '/'
-                }])
-            
-            page = await context.new_page()
-            logger.info("Browser context created successfully")
-            
-            try:
-                logger.info("Starting to scrape news")
-                news_data = await scrape_news(page, signal.instrument)
-                logger.info(f"News data scraped successfully: {news_data}")
-                
-                return {
-                    "status": "success",
-                    "message": "Signal processed successfully",
-                    "data": {
-                        "signal": {
-                            "instrument": signal.instrument,
-                            "timestamp": signal.timestamp
-                        },
-                        "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
-                        "timestamp": signal.timestamp
-                    }
-                }
-            except Exception as e:
-                logger.error(f"Error in processing: {str(e)}")
-                logger.error(f"Error type: {type(e)}")
-                logger.error(f"Error traceback: {traceback.format_exc()}")
-                return {
-                    "status": "error",
-                    "message": f"Error processing signal: {str(e)}",
-                    "data": None
-                }
-            finally:
-                logger.info("Closing browser")
-                await browser.close()
-                
+        }
+        
     except Exception as e:
-        logger.error(f"Error in main process: {str(e)}")
+        logger.error(f"Error in processing: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
         return {
             "status": "error",
-            "message": f"Error in main process: {str(e)}",
+            "message": f"Error processing signal: {str(e)}",
             "data": None
         }
