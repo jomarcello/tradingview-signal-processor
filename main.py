@@ -44,6 +44,15 @@ async def login_to_tradingview(page):
                        wait_until='networkidle',
                        timeout=10000)
         
+        # Wait for the page to be fully loaded
+        logger.info("Waiting for page to load")
+        await page.wait_for_load_state('networkidle')
+        await page.wait_for_load_state('domcontentloaded')
+        
+        # Take a screenshot for debugging
+        logger.info("Taking screenshot of page")
+        await page.screenshot(path='/tmp/tradingview_page.png', full_page=True)
+        
         # Look for the sign in button in the header with retry
         logger.info("Looking for header sign in button")
         header_signin = None
@@ -56,23 +65,55 @@ async def login_to_tradingview(page):
                     'button[data-name="header-signin-button"]',
                     '[data-name="header-signin-button"]',
                     'button.tv-header__user-menu-button--signin',
-                    '.tv-header__user-menu-button--signin'
+                    '.tv-header__user-menu-button--signin',
+                    'button.tv-header__user-menu-button',
+                    '.js-header-sign-in'
                 ]:
                     try:
-                        header_signin = await page.wait_for_selector(selector, timeout=3000)
-                        if header_signin:
-                            logger.info(f"Found header sign in button with selector: {selector}")
-                            break
-                    except:
+                        # First check if element exists
+                        exists = await page.evaluate(f'''(selector) => {{
+                            const el = document.querySelector(selector);
+                            if (el) {{
+                                console.log('Found element:', {{
+                                    selector,
+                                    html: el.outerHTML,
+                                    visible: el.offsetParent !== null
+                                }});
+                            }}
+                            return !!el;
+                        }}''', selector)
+                        
+                        if exists:
+                            logger.info(f"Element exists with selector: {selector}")
+                            header_signin = await page.wait_for_selector(selector, timeout=3000, state='visible')
+                            if header_signin:
+                                logger.info(f"Found visible header sign in button with selector: {selector}")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Failed to find element with selector {selector}: {str(e)}")
                         continue
                 
                 if header_signin:
                     break
                     
-            except Exception as e:
+                # If no element found, check page content
+                logger.info("Checking page content")
+                page_content = await page.content()
+                logger.info(f"Page title: {await page.title()}")
+                logger.info(f"Page URL: {page.url}")
+                
+                # Take another screenshot
+                logger.info("Taking screenshot after attempt")
+                await page.screenshot(path=f'/tmp/tradingview_page_attempt_{retry_count}.png', full_page=True)
+                
                 retry_count += 1
                 logger.warning(f"Retry {retry_count}: Could not find header sign in button")
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(2000)
+                
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry {retry_count}: Error finding header sign in button: {str(e)}")
+                await page.wait_for_timeout(2000)
         
         if header_signin:
             logger.info("Clicking header sign in button")
