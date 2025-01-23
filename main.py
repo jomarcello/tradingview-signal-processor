@@ -564,13 +564,41 @@ async def process_trading_signal(signal: TradingSignal):
             page = await browser.new_page()
             
             try:
-                # First login to TradingView
-                await login_to_tradingview(page)
+                # Go directly to news page
+                url = f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
+                logger.info(f"Navigating to {url}")
+                await page.goto(url)
                 
-                # Get news data
-                news_data = await scrape_news(page, signal.instrument)
+                # Wait for news container
+                await page.wait_for_selector('.card-HY0D0owe', timeout=10000)
                 
-                # Return only the news data
+                # Get all news items
+                news_items = await page.query_selector_all('.card-HY0D0owe')
+                
+                if not news_items:
+                    return {
+                        "status": "error",
+                        "message": "No news found",
+                        "data": None
+                    }
+                
+                # Get first news item
+                first_news = news_items[0]
+                
+                # Get title and link
+                title_el = await first_news.query_selector('[data-name="news-headline-title"]')
+                title = await title_el.text_content() if title_el else "No title"
+                
+                href = await first_news.get_attribute('href')
+                article_url = f"https://www.tradingview.com{href}"
+                
+                # Navigate to article
+                await page.goto(article_url)
+                
+                # Wait for article content
+                article = await page.wait_for_selector('article')
+                content = await article.text_content()
+                
                 return {
                     "status": "success",
                     "message": "Signal processed successfully",
@@ -579,7 +607,11 @@ async def process_trading_signal(signal: TradingSignal):
                             "instrument": signal.instrument,
                             "timestamp": signal.timestamp
                         },
-                        "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
+                        "news": {
+                            "title": title.strip(),
+                            "content": content.strip(),
+                            "url": article_url
+                        },
                         "timestamp": signal.timestamp
                     }
                 }
