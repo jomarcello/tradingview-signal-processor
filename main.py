@@ -320,58 +320,119 @@ async def scrape_news(page, symbol):
             try:
                 # Get the article data using the exact class names
                 article_data = await page.evaluate('''(container) => {
-                    const titleEl = container.querySelector('[data-name="news-headline-title"]');
-                    const dateEl = container.querySelector('relative-time');
-                    const providerEl = container.querySelector('.provider-TUPxzdRV');
-                    const articleUrl = container.href || container.closest('a')?.href;
-                    
-                    const title = titleEl ? titleEl.textContent.trim() : null;
-                    
-                    // Skip exclusive news
-                    if (title && title.includes("Sign in to read exclusive news")) {
-                        return null;
+                    try {
+                        // Try different selectors for article content
+                        const selectors = [
+                            'article p',        // Get all paragraphs inside article
+                            '.body-KX2tCBZq p', // Alternative class
+                            '.content-pIO_GYwT p', // Another alternative
+                            '.body-pIO_GYwT p', // Another body class
+                            'article li',       // List items in article
+                            '.body-KX2tCBZq li', // List items in body
+                            '.body-pIO_GYwT li'  // List items in alternative body
+                        ];
+                        
+                        let textContent = [];
+                        
+                        // Debug logging
+                        console.log('Available selectors on page:');
+                        document.querySelectorAll('*').forEach(el => {
+                            if (el.className) console.log(el.tagName + ' ' + el.className);
+                        });
+                        
+                        // Try each selector
+                        for (const selector of selectors) {
+                            console.log('Trying selector: ' + selector);
+                            const elements = document.querySelectorAll(selector);
+                            console.log('Found elements: ' + elements.length);
+                            
+                            if (elements.length > 0) {
+                                elements.forEach(el => {
+                                    // Skip empty text or social share buttons
+                                    if (el.closest('.timeAndSocialShare-pIO_GYwT')) {
+                                        console.log('Skipping social share element');
+                                        return;
+                                    }
+                                    
+                                    const text = el.textContent.trim();
+                                    if (text) {
+                                        console.log('Found text: ' + text.substring(0, 50));
+                                        
+                                        if (!textContent.includes(text)) {
+                                            textContent.push(text);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        
+                        // Get key points if available
+                        const keyPoints = document.querySelector('.summary-pIO_GYwT');
+                        if (keyPoints) {
+                            console.log('Found key points');
+                            const points = Array.from(keyPoints.querySelectorAll('li'))
+                                .map(li => li.textContent.trim())
+                                .filter(text => text);
+                                
+                            if (points.length > 0) {
+                                console.log('Adding key points: ' + points.join(', '));
+                                textContent.unshift('Key points:', ...points);
+                            }
+                        }
+                        
+                        // If no content found, try getting all text from the article
+                        if (textContent.length === 0) {
+                            console.log('No content found, trying full article text');
+                            const article = document.querySelector('article');
+                            if (article) {
+                                const text = article.textContent.trim();
+                                if (text) {
+                                    console.log('Found article text: ' + text.substring(0, 50));
+                                    textContent.push(text);
+                                }
+                            }
+                        }
+                        
+                        console.log('Final text content length: ' + textContent.length);
+                        return textContent.join('\\n\\n');
+                    } catch (err) {
+                        console.error('Error in JavaScript:', err);
+                        return 'Error in JavaScript: ' + err.message;
                     }
-                    
-                    return {
-                        title: title,
-                        date: dateEl ? dateEl.getAttribute('event-time') : null,
-                        provider: providerEl ? providerEl.textContent.trim() : null,
-                        url: articleUrl
-                    };
                 }''', item)
                 
                 if article_data and article_data['title'] and article_data['url']:
-                    # Navigate to the full article
+                    // Navigate to the full article
                     logger.info(f"Navigating to article: {article_data['url']}")
                     await page.goto(article_data['url'], wait_until='domcontentloaded')
                     
-                    # Log the page content for debugging
+                    // Log the page content for debugging
                     logger.info("Article page content:")
                     logger.info(await page.content())
                     
-                    # Take a screenshot of the article page
+                    // Take a screenshot of the article page
                     logger.info("Taking screenshot of article page")
                     await page.screenshot(path='/tmp/tradingview_article.png', full_page=True)
                     
-                    # Extract text content from article
+                    // Extract text content from article
                     article_content = None
                     try:
-                        # Wait for article content to load
+                        // Wait for article content to load
                         await page.wait_for_selector('article', timeout=5000)
-                        await page.wait_for_timeout(1000)  # Extra wait for content
+                        await page.wait_for_timeout(1000)  // Extra wait for content
                         
-                        # First try to get the article body
+                        // First try to get the article body
                         article_content = await page.evaluate('''() => {
                             try {
                                 // Try different selectors for article content
                                 const selectors = [
-                                    'article p',  # Get all paragraphs inside article
-                                    '.body-KX2tCBZq p',  # Alternative class
-                                    '.content-pIO_GYwT p',  # Another alternative
-                                    '.body-pIO_GYwT p',  # Another body class
-                                    'article li',  # List items in article
-                                    '.body-KX2tCBZq li',  # List items in body
-                                    '.body-pIO_GYwT li'  # List items in alternative body
+                                    'article p',        // Get all paragraphs inside article
+                                    '.body-KX2tCBZq p', // Alternative class
+                                    '.content-pIO_GYwT p', // Another alternative
+                                    '.body-pIO_GYwT p', // Another body class
+                                    'article li',       // List items in article
+                                    '.body-KX2tCBZq li', // List items in body
+                                    '.body-pIO_GYwT li'  // List items in alternative body
                                 ];
                                 
                                 let textContent = [];
@@ -460,7 +521,7 @@ async def scrape_news(page, symbol):
                     news_data.append(article_data)
                     logger.info(f"Found article: {article_data['title']}")
                     
-                    # Go back to the news list
+                    // Go back to the news list
                     await page.goto(f'https://www.tradingview.com/symbols/{symbol}/news/',
                                   wait_until='domcontentloaded')
             except Exception as e:
@@ -495,10 +556,10 @@ async def get_news(pair: str) -> Dict:
             )
             page = await context.new_page()
             
-            # First login to TradingView
+            // First login to TradingView
             await login_to_tradingview(page)
             
-            # Now scrape news
+            // Now scrape news
             news_data = await scrape_news(page, symbol)
             
             logger.info("Successfully scraped news")
@@ -518,7 +579,7 @@ async def get_news(pair: str) -> Dict:
             await browser.close()
 
 async def analyze_sentiment(content: str) -> Dict:
-    # Simple sentiment analysis based on keywords
+    // Simple sentiment analysis based on keywords
     bullish_words = ['bullish', 'surge', 'gain', 'rise', 'higher', 'positive']
     bearish_words = ['bearish', 'drop', 'fall', 'lower', 'negative', 'decline']
     
@@ -549,7 +610,7 @@ async def analyze_sentiment(content: str) -> Dict:
 async def summarize_article(content: str) -> dict:
     """Generate a summary of the article using OpenAI."""
     try:
-        # Create the chat completion
+        // Create the chat completion
         response = await client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=[
@@ -566,7 +627,7 @@ async def summarize_article(content: str) -> dict:
             temperature=0.7
         )
         
-        # Extract the summary
+        // Extract the summary
         summary = response.choices[0].message.content
         
         return {
@@ -596,18 +657,18 @@ async def root():
 async def process_trading_signal(signal: TradingSignal):
     try:
         async with async_playwright() as p:
-            # Launch browser
+            // Launch browser
             browser = await p.chromium.launch()
             page = await browser.new_page()
             
-            # Login to TradingView
+            // First login to TradingView
             await login_to_tradingview(page)
             
             try:
-                # Get news data
+                // Get news data
                 news_data = await scrape_news(page, signal.instrument)
                 
-                # Generate summary
+                // Generate summary
                 if len(news_data) > 0 and news_data[0]['content'] != "No content found":
                     summary_data = await summarize_article(news_data[0]['content'])
                 else:
@@ -616,10 +677,10 @@ async def process_trading_signal(signal: TradingSignal):
                         "tokens_used": 0
                     }
                 
-                # Analyze sentiment
+                // Analyze sentiment
                 sentiment = await analyze_sentiment(news_data[0]['content'])
                 
-                # Combine all data
+                // Combine all data
                 combined_data = {
                     "signal": {
                         "instrument": signal.instrument,
