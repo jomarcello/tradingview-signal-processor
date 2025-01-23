@@ -88,8 +88,8 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
             # Create context with minimal options
             logger.info("Creating context")
             context = await browser.new_context(
-                viewport={'width': 800, 'height': 600},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
             
             try:
@@ -98,8 +98,10 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First go to main page
                 logger.info("Going to main page")
-                response = await page.goto('https://www.tradingview.com/', wait_until='load', timeout=120000)
-                logger.info(f"Main page status: {response.status if response else 'No response'}")
+                await page.goto('https://www.tradingview.com/', wait_until='networkidle', timeout=120000)
+                await page.wait_for_load_state('domcontentloaded', timeout=120000)
+                await page.wait_for_load_state('load', timeout=120000)
+                logger.info("Main page loaded")
                 
                 # Take screenshot for debugging
                 logger.info("Taking screenshot")
@@ -109,6 +111,9 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 content = await page.content()
                 logger.info(f"Page content length: {len(content)}")
                 logger.info(f"First 500 chars: {content[:500]}")
+                
+                # Wait for page to be fully loaded
+                await page.wait_for_timeout(5000)
                 
                 # Click user icon to open login modal
                 logger.info("Looking for user menu button")
@@ -121,8 +126,8 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Click "Sign in" button
                 logger.info("Looking for sign in button")
-                await page.wait_for_selector('text=Sign in', timeout=60000)
-                await page.click('text=Sign in', timeout=60000)
+                await page.wait_for_selector('button[data-overflow-tooltip-text="Sign in"]', timeout=60000)
+                await page.click('button[data-overflow-tooltip-text="Sign in"]', timeout=60000)
                 logger.info("Clicked sign in button")
                 
                 # Wait a bit for the dialog to open
