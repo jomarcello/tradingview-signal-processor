@@ -62,65 +62,62 @@ async def login_to_tradingview_with_requests():
     
     async with aiohttp.ClientSession(**session_kwargs) as session:
         try:
-            # Headers for all requests
+            # First get the CSRF token
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Origin': 'https://www.tradingview.com',
-                'Referer': 'https://www.tradingview.com/',
-                'Content-Type': 'application/json',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0'
             }
             
-            # First try to get session token
-            async with session.post(
-                'https://www.tradingview.com/accounts/signin/',
-                headers=headers,
-                json={
-                    "username": os.getenv("TRADINGVIEW_EMAIL"),
-                    "password": os.getenv("TRADINGVIEW_PASSWORD"),
-                    "remember": True
-                },
-                timeout=REQUEST_TIMEOUT
-            ) as response:
-                if response.status == 200:
-                    logger.info("Login successful")
-                    cookies = response.cookies
-                    return {cookie.key: cookie.value for cookie in cookies.values()}
-                else:
-                    # Try alternative endpoint
-                    logger.info("First login attempt failed, trying alternative endpoint")
-                    async with session.post(
-                        'https://www.tradingview.com/api/v1/auth/signin/',
-                        headers=headers,
-                        json={
-                            "username": os.getenv("TRADINGVIEW_EMAIL"),
-                            "password": os.getenv("TRADINGVIEW_PASSWORD"),
-                            "remember": True
-                        },
-                        timeout=REQUEST_TIMEOUT
-                    ) as alt_response:
-                        if alt_response.status == 200:
-                            logger.info("Login successful via alternative endpoint")
-                            cookies = alt_response.cookies
-                            return {cookie.key: cookie.value for cookie in cookies.values()}
-                        else:
-                            # Try third endpoint
-                            logger.info("Second login attempt failed, trying third endpoint")
-                            async with session.post(
-                                'https://www.tradingview.com/api/v1/user/signin/',
-                                headers=headers,
-                                json={
-                                    "username": os.getenv("TRADINGVIEW_EMAIL"),
-                                    "password": os.getenv("TRADINGVIEW_PASSWORD"),
-                                    "remember": True
-                                },
-                                timeout=REQUEST_TIMEOUT
-                            ) as third_response:
-                                if third_response.status == 200:
-                                    logger.info("Login successful via third endpoint")
-                                    cookies = third_response.cookies
-                                    return {cookie.key: cookie.value for cookie in cookies.values()}
-                                else:
-                                    raise Exception(f"Login failed with status {third_response.status}")
+            async with session.get('https://www.tradingview.com/accounts/signin/', headers=headers) as response:
+                text = await response.text()
+                csrf_token = None
+                for line in text.split('\n'):
+                    if 'csrf-token' in line:
+                        csrf_token = line.split('content="')[1].split('"')[0]
+                        break
+                
+                if not csrf_token:
+                    raise Exception("Could not find CSRF token")
+                
+                logger.info("Got CSRF token")
+                
+                # Now login with the token
+                headers.update({
+                    'Origin': 'https://www.tradingview.com',
+                    'Referer': 'https://www.tradingview.com/accounts/signin/',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrf_token,
+                    'X-Requested-With': 'XMLHttpRequest'
+                })
+                
+                data = {
+                    'username': os.getenv("TRADINGVIEW_EMAIL"),
+                    'password': os.getenv("TRADINGVIEW_PASSWORD"),
+                    'remember': 'on'
+                }
+                
+                async with session.post(
+                    'https://www.tradingview.com/accounts/signin/',
+                    headers=headers,
+                    data=data,
+                    timeout=REQUEST_TIMEOUT
+                ) as login_response:
+                    if login_response.status == 200:
+                        logger.info("Login successful")
+                        cookies = login_response.cookies
+                        return {cookie.key: cookie.value for cookie in cookies.values()}
+                    else:
+                        raise Exception(f"Login failed with status {login_response.status}")
                     
         except asyncio.TimeoutError:
             logger.error("Login request timed out")
