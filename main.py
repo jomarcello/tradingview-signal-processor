@@ -48,35 +48,9 @@ async def login_to_tradingview(page):
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
         
-        # Wait for CSS bundles to load in parallel with a short timeout
-        css_bundles = [
-            'https://static.tradingview.com/static/bundles/44524.822aea2118d5fb32382f.css',
-            'https://static.tradingview.com/static/bundles/62093.5d0098bab0d2d4ea02e5.css',
-            'https://static.tradingview.com/static/bundles/4752.aac2f2a838ddc6c166c7.css'
-        ]
-        
-        async def wait_for_css(css):
-            try:
-                await page.wait_for_selector(f'link[href="{css}"]', timeout=2000)
-                logger.info(f"CSS bundle loaded: {css}")
-                return True
-            except Exception as e:
-                logger.warning(f"Failed to wait for CSS bundle {css}: {str(e)}")
-                return False
-        
-        # Wait for all CSS bundles in parallel
-        logger.info("Starting parallel CSS bundle loading")
-        css_results = await asyncio.gather(*[wait_for_css(css) for css in css_bundles], return_exceptions=True)
-        loaded_css = sum(1 for r in css_results if r is True)
-        logger.info(f"Loaded {loaded_css} out of {len(css_bundles)} CSS bundles")
-        
-        # Extra wait for JavaScript initialization (shorter)
-        logger.info("Waiting for JavaScript initialization")
-        await page.wait_for_timeout(2000)
-        
-        # Take screenshot before any frame switching
-        logger.info("Taking screenshot of signin page")
-        await page.screenshot(path="/tmp/signin-page.png")
+        # Take screenshot of initial state
+        logger.info("Taking screenshot of initial state")
+        await page.screenshot(path="/tmp/initial-state.png")
         
         # Log the current URL and content
         current_url = page.url
@@ -106,6 +80,20 @@ async def login_to_tradingview(page):
             ('[name="username"]', '[name="password"]'),
             ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]')
         ]
+        
+        # Log all available elements for debugging
+        logger.info("Checking available elements in DOM:")
+        elements = await main_frame.evaluate('''() => {
+            const elements = document.querySelectorAll('input, button');
+            return Array.from(elements).map(el => ({
+                tag: el.tagName,
+                type: el.type,
+                id: el.id,
+                name: el.name,
+                class: el.className
+            }));
+        }''')
+        logger.info(f"Found elements: {json.dumps(elements, indent=2)}")
         
         logged_in = False
         for email_selector, password_selector in selectors:
