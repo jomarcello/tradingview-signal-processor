@@ -20,23 +20,29 @@ def setup_logging():
 logger = setup_logging()
 
 async def get_news(pair: str) -> Dict:
+    logger.info(f"Starting news scraping for {pair}")
     special_symbols = {
         'XAUUSD': 'GOLD'
     }
     
     symbol = special_symbols.get(pair, pair)
+    logger.info(f"Using symbol: {symbol}")
     
     async with async_playwright() as p:
+        logger.info("Launching browser")
         browser = await p.chromium.launch(headless=True)
         try:
+            logger.info("Creating new page")
             page = await browser.new_page()
             
             url = f"https://www.tradingview.com/symbols/{symbol}/news/"
             logger.info(f"Navigating to {url}")
             await page.goto(url)
             
+            logger.info("Waiting for news table")
             await page.wait_for_selector('.news-table')
             
+            logger.info("Finding first news article")
             first_news = page.locator('.news-table tr:first-child td.desc a')
             news_title = await first_news.text_content()
             news_link = await first_news.get_attribute('href')
@@ -45,9 +51,11 @@ async def get_news(pair: str) -> Dict:
             logger.info(f"Navigating to news article: {full_news_url}")
             await page.goto(full_news_url)
             
+            logger.info("Waiting for article content")
             article = await page.wait_for_selector('article')
             article_content = await article.text_content()
             
+            logger.info("Successfully scraped news")
             return {
                 "title": news_title.strip(),
                 "content": article_content.strip(),
@@ -55,8 +63,12 @@ async def get_news(pair: str) -> Dict:
             }
         except Exception as e:
             logger.error(f"Error scraping news: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=str(e))
         finally:
+            logger.info("Closing browser")
             await browser.close()
 
 async def analyze_sentiment(content: str) -> Dict:
