@@ -11,6 +11,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Get TradingView credentials from environment
+TRADINGVIEW_EMAIL = os.getenv('TRADINGVIEW_EMAIL')
+TRADINGVIEW_PASSWORD = os.getenv('TRADINGVIEW_PASSWORD')
+
+if not TRADINGVIEW_EMAIL or not TRADINGVIEW_PASSWORD:
+    raise ValueError("TradingView credentials not set in environment variables")
+
 app = FastAPI()
 
 def setup_logging():
@@ -18,6 +25,31 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+async def login_to_tradingview(page):
+    """Login to TradingView using environment credentials"""
+    try:
+        logger.info("Attempting to log in to TradingView")
+        await page.goto('https://www.tradingview.com/sign-in/')
+        
+        # Wait for and fill in email field
+        await page.wait_for_selector('input[name="username"]')
+        await page.fill('input[name="username"]', TRADINGVIEW_EMAIL)
+        
+        # Wait for and fill in password field
+        await page.wait_for_selector('input[name="password"]')
+        await page.fill('input[name="password"]', TRADINGVIEW_PASSWORD)
+        
+        # Click sign in button
+        await page.click('button[type="submit"]')
+        
+        # Wait for login to complete
+        await page.wait_for_selector('.tv-header__user-menu-button')
+        logger.info("Successfully logged in to TradingView")
+        
+    except Exception as e:
+        logger.error(f"Failed to log in to TradingView: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to log in to TradingView")
 
 async def get_news(pair: str) -> Dict:
     logger.info(f"Starting news scraping for {pair}")
@@ -38,26 +70,16 @@ async def get_news(pair: str) -> Dict:
             )
             page = await context.new_page()
             
+            # First login to TradingView
+            await login_to_tradingview(page)
+            
+            # Now navigate to news page
             url = f"https://www.tradingview.com/symbols/{symbol}/news/"
             logger.info(f"Navigating to {url}")
             await page.goto(url)
             
-            # Take screenshot and log page content
-            await page.screenshot(path="/tmp/page.png")
-            content = await page.content()
-            logger.info(f"Page content: {content[:500]}...")  # Log first 500 chars
-            
             logger.info("Waiting for news table")
-            try:
-                await page.wait_for_selector('.news-table', timeout=5000)
-            except Exception as e:
-                logger.error("Could not find news table, checking for login wall")
-                if "sign in" in content.lower() or "log in" in content.lower():
-                    raise HTTPException(
-                        status_code=500,
-                        detail="TradingView requires login to view news. Please implement login functionality."
-                    )
-                raise e
+            await page.wait_for_selector('.news-table', timeout=10000)
             
             logger.info("Finding first news article")
             first_news = page.locator('.news-table tr:first-child td.desc a')
