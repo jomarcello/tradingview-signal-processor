@@ -150,48 +150,26 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     try:
-                        # Get title and parent link
+                        # Get title from data attribute
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        parent = await item.evaluate('element => element.closest("a")')
-                        href = await parent.get_attribute('href')
-                        
-                        if not title or not href:
-                            logger.warning("Could not find title or href")
+                        if not title:
+                            logger.warning("Could not find title")
                             continue
                             
-                        logger.info(f"Opening article: {title}")
-                        
-                        # Navigate to article
-                        full_url = f"https://www.tradingview.com{href}"
-                        await page.goto(full_url, wait_until='load', timeout=30000)
-                        
-                        # Wait for article content
-                        await page.wait_for_selector('.body-bETdSLzM', timeout=10000)
-                        
-                        # Get full article content
-                        content = await page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
-                        
-                        logger.info(f"Found article content: {content[:100]}...")
+                        logger.info(f"Found article: {title}")
                         articles.append({
                             'title': title.strip(),
-                            'content': content.strip()
+                            'content': title.strip()  # For now, just use title as content
                         })
-                        
-                        # Go back to news page
-                        news_url = f'https://www.tradingview.com/symbols/{instrument}/news/'
-                        await page.goto(news_url, wait_until='load', timeout=30000)
-                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
                             
                     except Exception as e:
                         logger.warning(f"Error processing news item: {str(e)}")
                         continue
                 
-                # Return all articles found
-                if articles:
-                    logger.info(f"Successfully found {len(articles)} articles")
-                    return articles
-                else:
+                if not articles:
                     raise Exception("No articles found")
+                
+                return articles
         
             finally:
                 logger.info("Cleaning up browser resources")
