@@ -183,10 +183,10 @@ async def scrape_news(page, symbol):
     try:
         logger.info(f"Navigating to https://www.tradingview.com/symbols/{symbol}/news/")
         await page.goto(f'https://www.tradingview.com/symbols/{symbol}/news/',
-                       wait_until='networkidle',
+                       wait_until='domcontentloaded',  
                        timeout=10000)
         
-        logger.info("Waiting for news table")
+        logger.info("Waiting for news container")
         
         # First check if we're on the right page
         current_url = page.url
@@ -202,15 +202,17 @@ async def scrape_news(page, symbol):
         
         while retry_count < 3 and not news_items:
             try:
-                # Try different selectors for news items
+                # Try different selectors based on actual HTML structure
                 for selector in [
-                    'article[data-name="news-headline-card"]',
-                    '.card-DmjQR0Aa',
-                    '[data-name="news-headline-card"]',
-                    '.news-list > *'  # Any child of news-list
+                    '.container-DmjQR0Aa',  
+                    '.container-HY0D0owe',  
+                    '[data-name="news-headline-title"]',  
+                    '.title-DmjQR0Aa'  
                 ]:
                     try:
                         logger.info(f"Trying selector: {selector}")
+                        # Wait for the element to be visible
+                        await page.wait_for_selector(selector, timeout=5000, state='visible')
                         news_items = await page.query_selector_all(selector)
                         if news_items and len(news_items) > 0:
                             logger.info(f"Found {len(news_items)} news items with selector: {selector}")
@@ -226,30 +228,6 @@ async def scrape_news(page, symbol):
                 logger.info("Checking page content")
                 page_content = await page.content()
                 logger.info(f"Page title: {await page.title()}")
-                
-                # Look for any news-related elements
-                news_elements = await page.evaluate('''() => {
-                    const elements = [];
-                    document.querySelectorAll('*').forEach(el => {
-                        if (el.id?.toLowerCase().includes('news') || 
-                            el.className?.toLowerCase().includes('news') ||
-                            el.getAttribute('data-name')?.toLowerCase().includes('news')) {
-                            elements.push({
-                                tag: el.tagName,
-                                id: el.id,
-                                class: el.className,
-                                dataName: el.getAttribute('data-name'),
-                                visible: el.offsetParent !== null
-                            });
-                        }
-                    });
-                    return elements;
-                }''')
-                
-                if news_elements:
-                    logger.info(f"Found {len(news_elements)} news-related elements:")
-                    for el in news_elements:
-                        logger.info(f"  {el}")
                 
                 # Take another screenshot
                 logger.info("Taking screenshot after attempt")
@@ -269,20 +247,20 @@ async def scrape_news(page, symbol):
             
         # Process the news items
         news_data = []
-        for item in news_items[:10]:  # Limit to first 10 items
+        for item in news_items[:10]:  
             try:
-                # Get the article data
-                article_data = await page.evaluate('''(article) => {
-                    const titleEl = article.querySelector('[data-name="headline-title"]') || 
-                                  article.querySelector('.title-DmjQR0Aa');
-                    const dateEl = article.querySelector('relative-time');
-                    const providerEl = article.querySelector('.provider-TUPxzdRV');
+                # Get the article data using the exact class names
+                article_data = await page.evaluate('''(container) => {
+                    const titleEl = container.querySelector('[data-name="news-headline-title"]') || 
+                                  container.querySelector('.title-DmjQR0Aa');
+                    const dateEl = container.querySelector('relative-time');
+                    const providerEl = container.querySelector('.provider-TUPxzdRV');
                     
                     return {
                         title: titleEl ? titleEl.textContent.trim() : null,
                         date: dateEl ? dateEl.getAttribute('event-time') : null,
                         provider: providerEl ? providerEl.textContent.trim() : null,
-                        html: article.outerHTML
+                        html: container.outerHTML
                     };
                 }''', item)
                 
