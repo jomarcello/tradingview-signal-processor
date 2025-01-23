@@ -38,55 +38,40 @@ async def login_to_tradingview(page):
             'Upgrade-Insecure-Requests': '1',
         })
         
-        # Go to main page first
-        logger.info("Going to main page")
-        await page.goto('https://www.tradingview.com/')
+        # Go directly to the email sign in page
+        logger.info("Going to email sign in page")
+        await page.goto('https://www.tradingview.com/accounts/signin/')
         
         # Wait for the page to load and stabilize
         await page.wait_for_load_state('networkidle')
+        await page.wait_for_timeout(2000)  # Extra wait for dynamic content
         
-        # Take screenshot of main page
-        await page.screenshot(path="/tmp/main-page.png")
-        
-        # Find and click the "Sign in" button
-        logger.info("Looking for Sign in button")
-        sign_in_buttons = [
-            'button:has-text("Sign in")',
-            'a:has-text("Sign in")',
-            '[data-name="header-user-menu-sign-in"]',
-            '.tv-header__user-menu-button'
-        ]
-        
-        for button_selector in sign_in_buttons:
-            try:
-                logger.info(f"Trying to click sign in button: {button_selector}")
-                await page.click(button_selector, timeout=5000)
-                logger.info("Successfully clicked sign in button")
-                break
-            except Exception as e:
-                logger.warning(f"Failed to click {button_selector}: {str(e)}")
-                continue
-        
-        # Wait for login form to appear
-        logger.info("Waiting for login form to load")
-        await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(2000)  # Extra wait for animation
-        
-        # Take screenshot of login form
-        await page.screenshot(path="/tmp/login-form.png")
+        # Take screenshot
+        await page.screenshot(path="/tmp/signin-page.png")
         
         # Log the current URL and content
         current_url = page.url
         content = await page.content()
-        logger.info(f"Current URL after clicking sign in: {current_url}")
+        logger.info(f"Current URL: {current_url}")
         logger.info(f"Page content: {content[:500]}...")
+        
+        # Check for and switch to login iframe if present
+        iframes = page.frames
+        logger.info(f"Found {len(iframes)} frames")
+        for frame in iframes:
+            logger.info(f"Frame URL: {frame.url}")
+            if 'signin' in frame.url.lower():
+                logger.info(f"Switching to signin frame: {frame.url}")
+                page = frame
+                break
         
         # Try different selectors for email/password fields
         selectors = [
             ('input[name="username"]', 'input[name="password"]'),
             ('input[type="email"]', 'input[type="password"]'),
             ('#email-signin__user-name-input', '#email-signin__password-input'),
-            ('form input[type="text"]', 'form input[type="password"]')
+            ('form input[type="text"]', 'form input[type="password"]'),
+            ('[name="username"]', '[name="password"]')
         ]
         
         logged_in = False
@@ -95,28 +80,40 @@ async def login_to_tradingview(page):
                 logger.info(f"Trying selectors: {email_selector}, {password_selector}")
                 
                 # Wait for and fill in email field
-                await page.wait_for_selector(email_selector, timeout=5000)
-                await page.fill(email_selector, TRADINGVIEW_EMAIL)
+                email_elem = await page.wait_for_selector(email_selector, timeout=5000, state='visible')
+                if not email_elem:
+                    logger.warning(f"Email field {email_selector} not found")
+                    continue
+                    
+                await email_elem.fill(TRADINGVIEW_EMAIL)
                 logger.info("Filled email field")
                 
                 # Wait for and fill in password field
-                await page.wait_for_selector(password_selector, timeout=5000)
-                await page.fill(password_selector, TRADINGVIEW_PASSWORD)
+                password_elem = await page.wait_for_selector(password_selector, timeout=5000, state='visible')
+                if not password_elem:
+                    logger.warning(f"Password field {password_selector} not found")
+                    continue
+                    
+                await password_elem.fill(TRADINGVIEW_PASSWORD)
                 logger.info("Filled password field")
                 
                 # Find and click sign in button
                 submit_buttons = [
                     'button[type="submit"]',
                     'button:has-text("Sign in")',
-                    '[data-name="submit"]'
+                    '[data-name="submit"]',
+                    'button.tv-button__loader',
+                    '.tv-button--primary'
                 ]
                 
                 for submit_selector in submit_buttons:
                     try:
                         logger.info(f"Trying to click submit button: {submit_selector}")
-                        await page.click(submit_selector, timeout=5000)
-                        logger.info("Clicked submit button")
-                        break
+                        submit_elem = await page.wait_for_selector(submit_selector, timeout=5000, state='visible')
+                        if submit_elem:
+                            await submit_elem.click()
+                            logger.info("Clicked submit button")
+                            break
                     except Exception as e:
                         logger.warning(f"Failed to click {submit_selector}: {str(e)}")
                         continue
