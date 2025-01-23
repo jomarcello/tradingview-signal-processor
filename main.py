@@ -344,11 +344,39 @@ async def scrape_news(page, symbol):
                     logger.info(f"Navigating to article: {article_data['url']}")
                     await page.goto(article_data['url'], wait_until='domcontentloaded')
                     
-                    # Wait for article content
-                    article_content = await page.wait_for_selector('.content-HY0D0owe, .content-DmjQR0Aa', timeout=5000)
+                    # Log the page content for debugging
+                    logger.info("Article page content:")
+                    logger.info(await page.content())
+                    
+                    # Take a screenshot of the article page
+                    logger.info("Taking screenshot of article page")
+                    await page.screenshot(path='/tmp/tradingview_article.png', full_page=True)
+                    
+                    # Wait for article content with different selectors
+                    article_content = None
+                    for selector in [
+                        '.content-HY0D0owe',
+                        '.content-DmjQR0Aa',
+                        'article',
+                        '.article-content',
+                        '[data-name="news-text"]',
+                        '.news-text'
+                    ]:
+                        try:
+                            logger.info(f"Trying article selector: {selector}")
+                            article_content = await page.wait_for_selector(selector, timeout=5000)
+                            if article_content:
+                                logger.info(f"Found article content with selector: {selector}")
+                                break
+                        except Exception as e:
+                            logger.warning(f"Failed to find article content with selector {selector}: {str(e)}")
+                    
                     if article_content:
                         article_data['html'] = await article_content.evaluate('el => el.outerHTML')
                         logger.info("Successfully retrieved full article content")
+                    else:
+                        logger.warning("Could not find article content, using page content")
+                        article_data['html'] = await page.evaluate('() => document.body.innerHTML')
                     
                     news_data.append(article_data)
                     logger.info(f"Found article: {article_data['title']}")
@@ -360,6 +388,9 @@ async def scrape_news(page, symbol):
                 logger.warning(f"Error processing news item: {str(e)}")
                 continue
         
+        if not news_data:
+            raise Exception("Could not find any valid news articles")
+            
         return news_data
             
     except Exception as e:
