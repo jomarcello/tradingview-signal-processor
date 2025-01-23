@@ -37,59 +37,26 @@ async def login_to_tradingview(page):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
+
+        # Start listening for network requests
+        page.on("request", lambda request: logger.info(f"Network request: {request.url}"))
+        page.on("response", lambda response: logger.info(f"Network response: {response.url} - {response.status}"))
         
-        # First go to the main signin page
-        logger.info("Going to main signin page")
-        await page.goto('https://www.tradingview.com/#signin', wait_until='networkidle', timeout=10000)
+        # Go directly to the email sign in page
+        logger.info("Going to email sign in page")
+        await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle', timeout=10000)
         
         # Wait for the page to load and stabilize
         logger.info("Waiting for page to stabilize")
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
+        await page.wait_for_timeout(5000)  # Extra wait for dynamic content
         
-        # Wait for any dynamic content and take screenshot
-        logger.info("Waiting for dynamic content")
-        await page.wait_for_timeout(3000)
-        await page.screenshot(path="/tmp/main-signin.png")
-        
-        # Look for and click the email signin button
-        email_buttons = [
-            'button:has-text("Email")',
-            'button:has-text("Sign in with Email")',
-            '[data-name="email-signin-button"]',
-            '.tv-signin-dialog__toggle-email',
-            'a:has-text("Email")',
-            '[href*="email"]'
-        ]
-        
-        clicked_email = False
-        for button_selector in email_buttons:
-            try:
-                logger.info(f"Looking for email button: {button_selector}")
-                button = await page.wait_for_selector(button_selector, timeout=1000, state='visible')
-                if button:
-                    logger.info(f"Found email button with selector: {button_selector}")
-                    await button.click()
-                    clicked_email = True
-                    break
-            except Exception as e:
-                logger.warning(f"Could not find email button with selector {button_selector}: {str(e)}")
-                continue
-        
-        if not clicked_email:
-            logger.warning("Could not find email button, trying direct navigation")
-            await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle', timeout=10000)
-        
-        # Wait for the page/form to load
-        logger.info("Waiting for login form to load")
-        await page.wait_for_load_state('domcontentloaded')
-        await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(3000)
-        
-        # Take screenshot of signin state
-        logger.info("Taking screenshot of signin state")
-        await page.screenshot(path="/tmp/signin-state.png")
+        # Take screenshot of initial state
+        logger.info("Taking screenshot of initial state")
+        await page.screenshot(path="/tmp/initial-state.png")
         
         # Log the current URL and content
         current_url = page.url
@@ -97,188 +64,132 @@ async def login_to_tradingview(page):
         logger.info(f"Current URL: {current_url}")
         logger.info(f"Page content length: {len(content)} characters")
         logger.info(f"Page content preview: {content[:500]}...")
-        
-        # Check for and switch to login iframe if present
-        iframes = page.frames
-        logger.info(f"Found {len(iframes)} frames")
-        main_frame = page
-        
-        for frame in iframes:
-            logger.info(f"Frame URL: {frame.url}")
-            if 'signin' in frame.url.lower():
-                logger.info(f"Found signin frame: {frame.url}")
-                main_frame = frame
-                break
-        
-        # Wait for any form elements to be present
-        logger.info("Waiting for form elements")
-        await main_frame.wait_for_selector('input, form, [type="email"], [type="text"]', timeout=5000)
-        
-        # Log all available elements for debugging, including shadow DOM
-        logger.info("Checking available elements in DOM:")
-        elements = await main_frame.evaluate('''() => {
-            function getAllElements(root) {
-                const elements = Array.from(root.querySelectorAll('*'));
-                const shadowElements = [];
-                
-                elements.forEach(el => {
-                    if (el.shadowRoot) {
-                        shadowElements.push(...getAllElements(el.shadowRoot));
-                    }
-                });
-                
-                return [...elements, ...shadowElements].filter(el => 
-                    el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.tagName === 'FORM'
-                ).map(el => ({
-                    tag: el.tagName,
-                    type: el.type,
-                    id: el.id,
-                    name: el.name,
-                    class: el.className,
-                    shadowRoot: !!el.shadowRoot,
-                    hidden: el.hidden,
-                    display: window.getComputedStyle(el).display,
-                    visibility: window.getComputedStyle(el).visibility,
-                    attributes: Object.fromEntries(
-                        Array.from(el.attributes).map(attr => [attr.name, attr.value])
-                    )
-                }));
-            }
-            return getAllElements(document);
-        }''')
-        logger.info(f"Found elements: {json.dumps(elements, indent=2)}")
-        
-        # Try different selectors for email/password fields
-        selectors = [
-            ('input[name="username"]', 'input[name="password"]'),
-            ('input[type="email"]', 'input[type="password"]'),
-            ('#email-signin__user-name-input', '#email-signin__password-input'),
-            ('form input[type="text"]', 'form input[type="password"]'),
-            ('[name="username"]', '[name="password"]'),
-            ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]'),
-            ('input.tv-control-material-textbox__input[name="username"]', 'input.tv-control-material-textbox__input[name="password"]'),
-            ('input[autocomplete="username"]', 'input[autocomplete="current-password"]'),
-            # Add more generic selectors as fallback
-            ('input[type="text"]', 'input[type="password"]'),
-            ('input:not([type="hidden"])', 'input[type="password"]')
-        ]
-        
-        logged_in = False
-        for email_selector, password_selector in selectors:
-            try:
-                logger.info(f"Trying selectors: {email_selector}, {password_selector}")
-                
-                # First check if elements exist using proper JavaScript syntax
-                js_email_selector = email_selector.replace("'", "\\'")
-                js_password_selector = password_selector.replace("'", "\\'")
-                
-                # Check in both regular DOM and shadow DOM
-                email_check = f'''
-                    () => {{
-                        const el = document.querySelector('{js_email_selector}');
-                        if (el) return true;
-                        const shadowEls = Array.from(document.querySelectorAll('*'))
-                            .filter(el => el.shadowRoot)
-                            .map(el => el.shadowRoot.querySelector('{js_email_selector}'));
-                        return shadowEls.some(el => el !== null);
-                    }}
-                '''
-                password_check = f'''
-                    () => {{
-                        const el = document.querySelector('{js_password_selector}');
-                        if (el) return true;
-                        const shadowEls = Array.from(document.querySelectorAll('*'))
-                            .filter(el => el.shadowRoot)
-                            .map(el => el.shadowRoot.querySelector('{js_password_selector}'));
-                        return shadowEls.some(el => el !== null);
-                    }}
-                '''
-                
-                email_exists = await main_frame.evaluate(email_check)
-                password_exists = await main_frame.evaluate(password_check)
-                
-                if not email_exists or not password_exists:
-                    logger.warning(f"Elements not found in DOM: email={email_exists}, password={password_exists}")
-                    continue
-                
-                # Wait for and fill in email field
-                email_elem = await main_frame.wait_for_selector(email_selector, timeout=2000, state='visible')
-                if not email_elem:
-                    logger.warning(f"Email field {email_selector} not visible")
-                    continue
-                    
-                await email_elem.fill(TRADINGVIEW_EMAIL)
-                logger.info("Filled email field")
-                
-                # Wait for and fill in password field
-                password_elem = await main_frame.wait_for_selector(password_selector, timeout=2000, state='visible')
-                if not password_elem:
-                    logger.warning(f"Password field {password_selector} not visible")
-                    continue
-                    
-                await password_elem.fill(TRADINGVIEW_PASSWORD)
-                logger.info("Filled password field")
-                
-                # Find and click sign in button
-                submit_buttons = [
+
+        # Try to fill the form using JavaScript
+        logger.info("Attempting to fill form using JavaScript")
+        fill_result = await page.evaluate(f'''() => {{
+            function findInput(attributes) {{
+                // Try different query strategies
+                for (const selector of [
+                    'input[type="email"], input[type="text"]',
+                    'input:not([type="hidden"])',
+                    'input'
+                ]) {{
+                    const inputs = Array.from(document.querySelectorAll(selector));
+                    const input = inputs.find(el => {{
+                        const style = window.getComputedStyle(el);
+                        return style.display !== 'none' && style.visibility !== 'hidden' && !el.hidden;
+                    }});
+                    if (input) return input;
+                }}
+                return null;
+            }}
+
+            function findPasswordInput() {{
+                return document.querySelector('input[type="password"]') ||
+                       document.querySelector('input[name="password"]');
+            }}
+
+            function findSubmitButton() {{
+                for (const selector of [
                     'button[type="submit"]',
-                    'button:has-text("Sign in")',
-                    '[data-name="submit"]',
-                    'button.tv-button__loader',
-                    '.tv-button--primary',
-                    '.tv-button',
-                    'button.tv-button--primary[type="submit"]',
-                    '[data-name="submit-button"]',
-                    # Add more generic button selectors
                     'input[type="submit"]',
-                    'button:not([disabled])',
-                    '[role="button"]'
-                ]
-                
-                for submit_selector in submit_buttons:
-                    try:
-                        logger.info(f"Trying to click submit button: {submit_selector}")
-                        # First check if button exists using proper JavaScript syntax
-                        js_submit_selector = submit_selector.replace("'", "\\'")
-                        button_check = f'''
-                            () => {{
-                                const el = document.querySelector('{js_submit_selector}');
-                                if (el) return true;
-                                const shadowEls = Array.from(document.querySelectorAll('*'))
-                                    .filter(el => el.shadowRoot)
-                                    .map(el => el.shadowRoot.querySelector('{js_submit_selector}'));
-                                return shadowEls.some(el => el !== null);
-                            }}
-                        '''
-                        button_exists = await main_frame.evaluate(button_check)
-                        if not button_exists:
-                            logger.warning(f"Submit button {submit_selector} not found in DOM")
-                            continue
-                            
-                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=2000, state='visible')
-                        if submit_elem:
-                            # Take screenshot before clicking
-                            logger.info("Taking screenshot before submit")
-                            await page.screenshot(path="/tmp/before-submit.png")
-                            await submit_elem.click()
-                            logger.info("Clicked submit button")
-                            break
-                    except Exception as e:
-                        logger.warning(f"Failed to click {submit_selector}: {str(e)}")
-                        continue
-                
-                # Wait for login to complete
-                logger.info("Waiting for login to complete")
-                await page.wait_for_selector('.tv-header__user-menu-button', timeout=3000)
-                logger.info("Successfully logged in to TradingView")
-                logged_in = True
-                break
-            except Exception as e:
-                logger.warning(f"Failed with selectors {email_selector}, {password_selector}: {str(e)}")
-                continue
+                    'button.tv-button--primary',
+                    '[data-name="submit"]',
+                    'button'
+                ]) {{
+                    const button = document.querySelector(selector);
+                    if (button) return button;
+                }}
+                return null;
+            }}
+
+            const emailInput = findInput();
+            const passwordInput = findPasswordInput();
+            const submitButton = findSubmitButton();
+
+            if (!emailInput || !passwordInput || !submitButton) {{
+                return {{
+                    success: false,
+                    error: 'Missing elements',
+                    found: {{
+                        email: !!emailInput,
+                        password: !!passwordInput,
+                        submit: !!submitButton
+                    }}
+                }};
+            }}
+
+            emailInput.value = '{TRADINGVIEW_EMAIL}';
+            emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            emailInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+            passwordInput.value = '{TRADINGVIEW_PASSWORD}';
+            passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+            passwordInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+            return {{
+                success: true,
+                elements: {{
+                    email: {{
+                        tag: emailInput.tagName,
+                        type: emailInput.type,
+                        id: emailInput.id,
+                        name: emailInput.name,
+                        class: emailInput.className
+                    }},
+                    password: {{
+                        tag: passwordInput.tagName,
+                        type: passwordInput.type,
+                        id: passwordInput.id,
+                        name: passwordInput.name,
+                        class: passwordInput.className
+                    }},
+                    submit: {{
+                        tag: submitButton.tagName,
+                        type: submitButton.type,
+                        id: submitButton.id,
+                        name: submitButton.name,
+                        class: submitButton.className
+                    }}
+                }}
+            }};
+        }}''')
         
-        if not logged_in:
-            raise Exception("Could not find login form with any known selectors")
+        logger.info(f"Form fill result: {json.dumps(fill_result, indent=2)}")
+        
+        if not fill_result.get('success'):
+            logger.error(f"Failed to fill form: {fill_result.get('error')}")
+            logger.info(f"Found elements: {fill_result.get('found')}")
+            raise Exception("Could not find all form elements")
+            
+        # Take screenshot after filling
+        logger.info("Taking screenshot after filling")
+        await page.screenshot(path="/tmp/after-fill.png")
+        
+        # Click submit using JavaScript
+        logger.info("Clicking submit button")
+        click_result = await page.evaluate('''() => {
+            const button = document.querySelector('button[type="submit"]') ||
+                          document.querySelector('input[type="submit"]') ||
+                          document.querySelector('button.tv-button--primary') ||
+                          document.querySelector('[data-name="submit"]') ||
+                          document.querySelector('button');
+            
+            if (button) {
+                button.click();
+                return true;
+            }
+            return false;
+        }''')
+        
+        if not click_result:
+            raise Exception("Could not click submit button")
+            
+        # Wait for login to complete
+        logger.info("Waiting for login to complete")
+        await page.wait_for_selector('.tv-header__user-menu-button', timeout=5000)
+        logger.info("Successfully logged in to TradingView")
         
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
