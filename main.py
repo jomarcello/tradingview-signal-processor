@@ -8,6 +8,7 @@ import logging
 import json
 import os
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -40,9 +41,27 @@ async def login_to_tradingview(page):
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
 
-        # Start listening for network requests
-        page.on("request", lambda request: logger.info(f"Network request: {request.url}"))
-        page.on("response", lambda response: logger.info(f"Network response: {response.url} - {response.status}"))
+        # Track loaded resources
+        loaded_resources = set()
+        required_resources = {
+            'auth_page_tvd',
+            'runtime',
+            'quote-ticker'
+        }
+
+        def log_request(request):
+            url = request.url
+            logger.info(f"Network request: {url}")
+            for resource in required_resources:
+                if resource in url:
+                    loaded_resources.add(resource)
+
+        def log_response(response):
+            url = response.url
+            logger.info(f"Network response: {url} - {response.status}")
+
+        page.on("request", log_request)
+        page.on("response", log_response)
         
         # Go directly to the email sign in page
         logger.info("Going to email sign in page")
@@ -52,7 +71,20 @@ async def login_to_tradingview(page):
         logger.info("Waiting for page to stabilize")
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(5000)  # Extra wait for dynamic content
+
+        # Wait for required resources
+        logger.info("Waiting for required resources to load")
+        timeout = time.time() + 10  # 10 second timeout
+        while len(loaded_resources) < len(required_resources) and time.time() < timeout:
+            await page.wait_for_timeout(100)
+            logger.info(f"Loaded resources: {loaded_resources}")
+        
+        if len(loaded_resources) < len(required_resources):
+            logger.warning(f"Not all resources loaded. Missing: {required_resources - loaded_resources}")
+        
+        # Extra wait for dynamic content
+        logger.info("Waiting for dynamic content")
+        await page.wait_for_timeout(5000)
         
         # Take screenshot of initial state
         logger.info("Taking screenshot of initial state")
@@ -64,6 +96,27 @@ async def login_to_tradingview(page):
         logger.info(f"Current URL: {current_url}")
         logger.info(f"Page content length: {len(content)} characters")
         logger.info(f"Page content preview: {content[:500]}...")
+
+        # Wait for any form elements to be present
+        logger.info("Waiting for form elements")
+        form_present = await page.evaluate('''() => {
+            return new Promise((resolve) => {
+                const checkForm = () => {
+                    const inputs = document.querySelectorAll('input');
+                    const visibleInputs = Array.from(inputs).filter(el => {
+                        const style = window.getComputedStyle(el);
+                        return style.display !== 'none' && style.visibility !== 'hidden' && !el.hidden;
+                    });
+                    
+                    if (visibleInputs.length > 0) {
+                        resolve(true);
+                    } else {
+                        setTimeout(checkForm, 100);
+                    }
+                };
+                checkForm();
+            });
+        }''')
 
         # Try to fill the form using JavaScript
         logger.info("Attempting to fill form using JavaScript")
@@ -78,7 +131,12 @@ async def login_to_tradingview(page):
                     const inputs = Array.from(document.querySelectorAll(selector));
                     const input = inputs.find(el => {{
                         const style = window.getComputedStyle(el);
-                        return style.display !== 'none' && style.visibility !== 'hidden' && !el.hidden;
+                        const rect = el.getBoundingClientRect();
+                        return style.display !== 'none' && 
+                               style.visibility !== 'hidden' && 
+                               !el.hidden &&
+                               rect.width > 0 &&
+                               rect.height > 0;
                     }});
                     if (input) return input;
                 }}
@@ -86,8 +144,27 @@ async def login_to_tradingview(page):
             }}
 
             function findPasswordInput() {{
-                return document.querySelector('input[type="password"]') ||
-                       document.querySelector('input[name="password"]');
+                const selectors = [
+                    'input[type="password"]',
+                    'input[name="password"]',
+                    'input.tv-control-material-textbox__input[type="password"]'
+                ];
+                
+                for (const selector of selectors) {{
+                    const input = document.querySelector(selector);
+                    if (input) {{
+                        const style = window.getComputedStyle(input);
+                        const rect = input.getBoundingClientRect();
+                        if (style.display !== 'none' && 
+                            style.visibility !== 'hidden' && 
+                            !input.hidden &&
+                            rect.width > 0 &&
+                            rect.height > 0) {{
+                            return input;
+                        }}
+                    }}
+                }}
+                return null;
             }}
 
             function findSubmitButton() {{
@@ -98,11 +175,45 @@ async def login_to_tradingview(page):
                     '[data-name="submit"]',
                     'button'
                 ]) {{
-                    const button = document.querySelector(selector);
+                    const buttons = document.querySelectorAll(selector);
+                    const button = Array.from(buttons).find(el => {{
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+                        return style.display !== 'none' && 
+                               style.visibility !== 'hidden' && 
+                               !el.hidden &&
+                               rect.width > 0 &&
+                               rect.height > 0;
+                    }});
                     if (button) return button;
                 }}
                 return null;
             }}
+
+            // Log all form-related elements for debugging
+            const allElements = Array.from(document.querySelectorAll('input, button, form')).map(el => {{
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return {{
+                    tag: el.tagName,
+                    type: el.type,
+                    id: el.id,
+                    name: el.name,
+                    class: el.className,
+                    hidden: el.hidden,
+                    display: style.display,
+                    visibility: style.visibility,
+                    dimensions: {{
+                        width: rect.width,
+                        height: rect.height
+                    }},
+                    attributes: Object.fromEntries(
+                        Array.from(el.attributes).map(attr => [attr.name, attr.value])
+                    )
+                }};
+            }});
+
+            console.log('Available elements:', allElements);
 
             const emailInput = findInput();
             const passwordInput = findPasswordInput();
@@ -116,7 +227,8 @@ async def login_to_tradingview(page):
                         email: !!emailInput,
                         password: !!passwordInput,
                         submit: !!submitButton
-                    }}
+                    }},
+                    allElements
                 }};
             }}
 
@@ -136,23 +248,27 @@ async def login_to_tradingview(page):
                         type: emailInput.type,
                         id: emailInput.id,
                         name: emailInput.name,
-                        class: emailInput.className
+                        class: emailInput.className,
+                        rect: emailInput.getBoundingClientRect()
                     }},
                     password: {{
                         tag: passwordInput.tagName,
                         type: passwordInput.type,
                         id: passwordInput.id,
                         name: passwordInput.name,
-                        class: passwordInput.className
+                        class: passwordInput.className,
+                        rect: passwordInput.getBoundingClientRect()
                     }},
                     submit: {{
                         tag: submitButton.tagName,
                         type: submitButton.type,
                         id: submitButton.id,
                         name: submitButton.name,
-                        class: submitButton.className
+                        class: submitButton.className,
+                        rect: submitButton.getBoundingClientRect()
                     }}
-                }}
+                }},
+                allElements
             }};
         }}''')
         
@@ -161,6 +277,7 @@ async def login_to_tradingview(page):
         if not fill_result.get('success'):
             logger.error(f"Failed to fill form: {fill_result.get('error')}")
             logger.info(f"Found elements: {fill_result.get('found')}")
+            logger.info(f"All elements: {json.dumps(fill_result.get('allElements'), indent=2)}")
             raise Exception("Could not find all form elements")
             
         # Take screenshot after filling
@@ -177,14 +294,20 @@ async def login_to_tradingview(page):
                           document.querySelector('button');
             
             if (button) {
-                button.click();
-                return true;
+                const rect = button.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    button.click();
+                    return {success: true, rect};
+                }
+                return {success: false, error: 'Button has no dimensions'};
             }
-            return false;
+            return {success: false, error: 'No button found'};
         }''')
         
-        if not click_result:
-            raise Exception("Could not click submit button")
+        logger.info(f"Click result: {json.dumps(click_result, indent=2)}")
+        
+        if not click_result.get('success'):
+            raise Exception(f"Could not click submit button: {click_result.get('error')}")
             
         # Wait for login to complete
         logger.info("Waiting for login to complete")
