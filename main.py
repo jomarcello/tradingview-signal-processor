@@ -40,29 +40,33 @@ async def login_to_tradingview(page):
         
         # Go directly to the email sign in page
         logger.info("Going to email sign in page")
-        await page.goto('https://www.tradingview.com/accounts/signin/')
+        await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle')
         
         # Wait for the page to load and stabilize
+        logger.info("Waiting for page to stabilize")
+        await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(2000)  # Extra wait for dynamic content
+        await page.wait_for_timeout(5000)  # Extra wait for JavaScript initialization
         
-        # Take screenshot
+        # Take screenshot before any frame switching
         await page.screenshot(path="/tmp/signin-page.png")
         
         # Log the current URL and content
         current_url = page.url
         content = await page.content()
         logger.info(f"Current URL: {current_url}")
-        logger.info(f"Page content: {content[:500]}...")
+        logger.info(f"Page content: {content[:1000]}...")  # Show more content for debugging
         
         # Check for and switch to login iframe if present
         iframes = page.frames
         logger.info(f"Found {len(iframes)} frames")
+        main_frame = page
+        
         for frame in iframes:
             logger.info(f"Frame URL: {frame.url}")
             if 'signin' in frame.url.lower():
-                logger.info(f"Switching to signin frame: {frame.url}")
-                page = frame
+                logger.info(f"Found signin frame: {frame.url}")
+                main_frame = frame
                 break
         
         # Try different selectors for email/password fields
@@ -71,7 +75,8 @@ async def login_to_tradingview(page):
             ('input[type="email"]', 'input[type="password"]'),
             ('#email-signin__user-name-input', '#email-signin__password-input'),
             ('form input[type="text"]', 'form input[type="password"]'),
-            ('[name="username"]', '[name="password"]')
+            ('[name="username"]', '[name="password"]'),
+            ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]')
         ]
         
         logged_in = False
@@ -79,19 +84,27 @@ async def login_to_tradingview(page):
             try:
                 logger.info(f"Trying selectors: {email_selector}, {password_selector}")
                 
+                # First check if elements exist
+                email_exists = await main_frame.evaluate(f'!!document.querySelector("{email_selector}")')
+                password_exists = await main_frame.evaluate(f'!!document.querySelector("{password_selector}")')
+                
+                if not email_exists or not password_exists:
+                    logger.warning(f"Elements not found in DOM: email={email_exists}, password={password_exists}")
+                    continue
+                
                 # Wait for and fill in email field
-                email_elem = await page.wait_for_selector(email_selector, timeout=5000, state='visible')
+                email_elem = await main_frame.wait_for_selector(email_selector, timeout=5000, state='visible')
                 if not email_elem:
-                    logger.warning(f"Email field {email_selector} not found")
+                    logger.warning(f"Email field {email_selector} not visible")
                     continue
                     
                 await email_elem.fill(TRADINGVIEW_EMAIL)
                 logger.info("Filled email field")
                 
                 # Wait for and fill in password field
-                password_elem = await page.wait_for_selector(password_selector, timeout=5000, state='visible')
+                password_elem = await main_frame.wait_for_selector(password_selector, timeout=5000, state='visible')
                 if not password_elem:
-                    logger.warning(f"Password field {password_selector} not found")
+                    logger.warning(f"Password field {password_selector} not visible")
                     continue
                     
                 await password_elem.fill(TRADINGVIEW_PASSWORD)
@@ -103,14 +116,23 @@ async def login_to_tradingview(page):
                     'button:has-text("Sign in")',
                     '[data-name="submit"]',
                     'button.tv-button__loader',
-                    '.tv-button--primary'
+                    '.tv-button--primary',
+                    '.tv-button'
                 ]
                 
                 for submit_selector in submit_buttons:
                     try:
                         logger.info(f"Trying to click submit button: {submit_selector}")
-                        submit_elem = await page.wait_for_selector(submit_selector, timeout=5000, state='visible')
+                        # First check if button exists
+                        button_exists = await main_frame.evaluate(f'!!document.querySelector("{submit_selector}")')
+                        if not button_exists:
+                            logger.warning(f"Submit button {submit_selector} not found in DOM")
+                            continue
+                            
+                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=5000, state='visible')
                         if submit_elem:
+                            # Take screenshot before clicking
+                            await page.screenshot(path="/tmp/before-submit.png")
                             await submit_elem.click()
                             logger.info("Clicked submit button")
                             break
@@ -132,7 +154,7 @@ async def login_to_tradingview(page):
         
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
-        # Take screenshot of error state
+        # Only take screenshot if we're on the main page
         await page.screenshot(path="/tmp/login-error.png")
         raise HTTPException(status_code=500, detail=f"Failed to log in to TradingView: {str(e)}")
 
