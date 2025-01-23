@@ -30,26 +30,67 @@ async def login_to_tradingview(page):
     """Login to TradingView using environment credentials"""
     try:
         logger.info("Attempting to log in to TradingView")
-        await page.goto('https://www.tradingview.com/sign-in/')
         
-        # Wait for and fill in email field
-        await page.wait_for_selector('input[name="username"]')
-        await page.fill('input[name="username"]', TRADINGVIEW_EMAIL)
+        # Set extra headers
+        await page.set_extra_http_headers({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Upgrade-Insecure-Requests': '1',
+        })
         
-        # Wait for and fill in password field
-        await page.wait_for_selector('input[name="password"]')
-        await page.fill('input[name="password"]', TRADINGVIEW_PASSWORD)
+        # Go directly to email login
+        await page.goto('https://www.tradingview.com/#signin')
         
-        # Click sign in button
-        await page.click('button[type="submit"]')
+        # Take screenshot for debugging
+        await page.screenshot(path="/tmp/login-page.png")
         
-        # Wait for login to complete
-        await page.wait_for_selector('.tv-header__user-menu-button')
-        logger.info("Successfully logged in to TradingView")
+        # Log the current URL and content
+        current_url = page.url
+        content = await page.content()
+        logger.info(f"Current URL: {current_url}")
+        logger.info(f"Page content: {content[:500]}...")
+        
+        # Try different selectors for email/password fields
+        selectors = [
+            ('input[name="username"]', 'input[name="password"]'),
+            ('input[type="email"]', 'input[type="password"]'),
+            ('#email-signin__user-name-input', '#email-signin__password-input')
+        ]
+        
+        logged_in = False
+        for email_selector, password_selector in selectors:
+            try:
+                logger.info(f"Trying selectors: {email_selector}, {password_selector}")
+                
+                # Wait for and fill in email field
+                await page.wait_for_selector(email_selector, timeout=5000)
+                await page.fill(email_selector, TRADINGVIEW_EMAIL)
+                
+                # Wait for and fill in password field
+                await page.wait_for_selector(password_selector, timeout=5000)
+                await page.fill(password_selector, TRADINGVIEW_PASSWORD)
+                
+                # Find and click sign in button
+                sign_in_button = page.locator('button:has-text("Sign in")')
+                await sign_in_button.click()
+                
+                # Wait for login to complete
+                await page.wait_for_selector('.tv-header__user-menu-button', timeout=10000)
+                logger.info("Successfully logged in to TradingView")
+                logged_in = True
+                break
+            except Exception as e:
+                logger.warning(f"Failed with selectors {email_selector}, {password_selector}: {str(e)}")
+                continue
+        
+        if not logged_in:
+            raise Exception("Could not find login form with any known selectors")
         
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to log in to TradingView")
+        # Take screenshot of error state
+        await page.screenshot(path="/tmp/login-error.png")
+        raise HTTPException(status_code=500, detail=f"Failed to log in to TradingView: {str(e)}")
 
 async def get_news(pair: str) -> Dict:
     logger.info(f"Starting news scraping for {pair}")
