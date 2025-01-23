@@ -47,23 +47,29 @@ async def login_to_tradingview(page):
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
         
-        # Wait for CSS bundles to load
+        # Wait for CSS bundles to load in parallel with a short timeout
         css_bundles = [
             'https://static.tradingview.com/static/bundles/44524.822aea2118d5fb32382f.css',
             'https://static.tradingview.com/static/bundles/62093.5d0098bab0d2d4ea02e5.css',
             'https://static.tradingview.com/static/bundles/4752.aac2f2a838ddc6c166c7.css'
         ]
         
-        for css in css_bundles:
+        async def wait_for_css(css):
             try:
-                await page.wait_for_load_state('networkidle')
-                logger.info(f"Waiting for CSS bundle: {css}")
-                await page.wait_for_selector(f'link[href="{css}"]')
+                await page.wait_for_selector(f'link[href="{css}"]', timeout=3000)
+                logger.info(f"CSS bundle loaded: {css}")
+                return True
             except Exception as e:
                 logger.warning(f"Failed to wait for CSS bundle {css}: {str(e)}")
+                return False
         
-        # Extra wait for JavaScript initialization
-        await page.wait_for_timeout(5000)
+        # Wait for all CSS bundles in parallel
+        css_results = await asyncio.gather(*[wait_for_css(css) for css in css_bundles], return_exceptions=True)
+        loaded_css = sum(1 for r in css_results if r is True)
+        logger.info(f"Loaded {loaded_css} out of {len(css_bundles)} CSS bundles")
+        
+        # Extra wait for JavaScript initialization (shorter)
+        await page.wait_for_timeout(3000)
         
         # Take screenshot before any frame switching
         await page.screenshot(path="/tmp/signin-page.png")
@@ -110,7 +116,7 @@ async def login_to_tradingview(page):
                     continue
                 
                 # Wait for and fill in email field
-                email_elem = await main_frame.wait_for_selector(email_selector, timeout=5000, state='visible')
+                email_elem = await main_frame.wait_for_selector(email_selector, timeout=3000, state='visible')
                 if not email_elem:
                     logger.warning(f"Email field {email_selector} not visible")
                     continue
@@ -119,7 +125,7 @@ async def login_to_tradingview(page):
                 logger.info("Filled email field")
                 
                 # Wait for and fill in password field
-                password_elem = await main_frame.wait_for_selector(password_selector, timeout=5000, state='visible')
+                password_elem = await main_frame.wait_for_selector(password_selector, timeout=3000, state='visible')
                 if not password_elem:
                     logger.warning(f"Password field {password_selector} not visible")
                     continue
@@ -146,7 +152,7 @@ async def login_to_tradingview(page):
                             logger.warning(f"Submit button {submit_selector} not found in DOM")
                             continue
                             
-                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=5000, state='visible')
+                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=3000, state='visible')
                         if submit_elem:
                             # Take screenshot before clicking
                             await page.screenshot(path="/tmp/before-submit.png")
@@ -158,7 +164,7 @@ async def login_to_tradingview(page):
                         continue
                 
                 # Wait for login to complete
-                await page.wait_for_selector('.tv-header__user-menu-button', timeout=10000)
+                await page.wait_for_selector('.tv-header__user-menu-button', timeout=5000)
                 logger.info("Successfully logged in to TradingView")
                 logged_in = True
                 break
