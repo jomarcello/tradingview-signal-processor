@@ -39,18 +39,57 @@ async def login_to_tradingview(page):
             'Upgrade-Insecure-Requests': '1',
         })
         
-        # Go directly to the email sign in page
-        logger.info("Going to email sign in page")
-        await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle', timeout=10000)
+        # First go to the main signin page
+        logger.info("Going to main signin page")
+        await page.goto('https://www.tradingview.com/#signin', wait_until='networkidle', timeout=10000)
         
         # Wait for the page to load and stabilize
         logger.info("Waiting for page to stabilize")
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
         
-        # Take screenshot of initial state
-        logger.info("Taking screenshot of initial state")
-        await page.screenshot(path="/tmp/initial-state.png")
+        # Wait for any dynamic content and take screenshot
+        logger.info("Waiting for dynamic content")
+        await page.wait_for_timeout(3000)
+        await page.screenshot(path="/tmp/main-signin.png")
+        
+        # Look for and click the email signin button
+        email_buttons = [
+            'button:has-text("Email")',
+            'button:has-text("Sign in with Email")',
+            '[data-name="email-signin-button"]',
+            '.tv-signin-dialog__toggle-email',
+            'a:has-text("Email")',
+            '[href*="email"]'
+        ]
+        
+        clicked_email = False
+        for button_selector in email_buttons:
+            try:
+                logger.info(f"Looking for email button: {button_selector}")
+                button = await page.wait_for_selector(button_selector, timeout=1000, state='visible')
+                if button:
+                    logger.info(f"Found email button with selector: {button_selector}")
+                    await button.click()
+                    clicked_email = True
+                    break
+            except Exception as e:
+                logger.warning(f"Could not find email button with selector {button_selector}: {str(e)}")
+                continue
+        
+        if not clicked_email:
+            logger.warning("Could not find email button, trying direct navigation")
+            await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle', timeout=10000)
+        
+        # Wait for the page/form to load
+        logger.info("Waiting for login form to load")
+        await page.wait_for_load_state('domcontentloaded')
+        await page.wait_for_load_state('networkidle')
+        await page.wait_for_timeout(3000)
+        
+        # Take screenshot of signin state
+        logger.info("Taking screenshot of signin state")
+        await page.screenshot(path="/tmp/signin-state.png")
         
         # Log the current URL and content
         current_url = page.url
@@ -71,6 +110,10 @@ async def login_to_tradingview(page):
                 main_frame = frame
                 break
         
+        # Wait for any form elements to be present
+        logger.info("Waiting for form elements")
+        await main_frame.wait_for_selector('input, form, [type="email"], [type="text"]', timeout=5000)
+        
         # Log all available elements for debugging, including shadow DOM
         logger.info("Checking available elements in DOM:")
         elements = await main_frame.evaluate('''() => {
@@ -85,7 +128,7 @@ async def login_to_tradingview(page):
                 });
                 
                 return [...elements, ...shadowElements].filter(el => 
-                    el.tagName === 'INPUT' || el.tagName === 'BUTTON'
+                    el.tagName === 'INPUT' || el.tagName === 'BUTTON' || el.tagName === 'FORM'
                 ).map(el => ({
                     tag: el.tagName,
                     type: el.type,
@@ -95,16 +138,15 @@ async def login_to_tradingview(page):
                     shadowRoot: !!el.shadowRoot,
                     hidden: el.hidden,
                     display: window.getComputedStyle(el).display,
-                    visibility: window.getComputedStyle(el).visibility
+                    visibility: window.getComputedStyle(el).visibility,
+                    attributes: Object.fromEntries(
+                        Array.from(el.attributes).map(attr => [attr.name, attr.value])
+                    )
                 }));
             }
             return getAllElements(document);
         }''')
         logger.info(f"Found elements: {json.dumps(elements, indent=2)}")
-        
-        # Wait for any dynamic content to load
-        logger.info("Waiting for dynamic content")
-        await page.wait_for_timeout(2000)
         
         # Try different selectors for email/password fields
         selectors = [
@@ -114,9 +156,11 @@ async def login_to_tradingview(page):
             ('form input[type="text"]', 'form input[type="password"]'),
             ('[name="username"]', '[name="password"]'),
             ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]'),
-            # Add more specific TradingView selectors
             ('input.tv-control-material-textbox__input[name="username"]', 'input.tv-control-material-textbox__input[name="password"]'),
-            ('input[autocomplete="username"]', 'input[autocomplete="current-password"]')
+            ('input[autocomplete="username"]', 'input[autocomplete="current-password"]'),
+            # Add more generic selectors as fallback
+            ('input[type="text"]', 'input[type="password"]'),
+            ('input:not([type="hidden"])', 'input[type="password"]')
         ]
         
         logged_in = False
@@ -183,9 +227,12 @@ async def login_to_tradingview(page):
                     'button.tv-button__loader',
                     '.tv-button--primary',
                     '.tv-button',
-                    # Add more specific TradingView button selectors
                     'button.tv-button--primary[type="submit"]',
-                    '[data-name="submit-button"]'
+                    '[data-name="submit-button"]',
+                    # Add more generic button selectors
+                    'input[type="submit"]',
+                    'button:not([disabled])',
+                    '[role="button"]'
                 ]
                 
                 for submit_selector in submit_buttons:
@@ -235,7 +282,6 @@ async def login_to_tradingview(page):
         
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
-        # Only take screenshot if we're on the main page
         logger.info("Taking error screenshot")
         await page.screenshot(path="/tmp/login-error.png")
         raise HTTPException(status_code=500, detail=f"Failed to log in to TradingView: {str(e)}")
