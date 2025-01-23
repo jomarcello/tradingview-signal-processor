@@ -98,41 +98,100 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First go to main page
                 logger.info("Going to main page")
-                await page.goto('https://www.tradingview.com/', wait_until='load', timeout=60000)
+                response = await page.goto('https://www.tradingview.com/', wait_until='load', timeout=120000)
+                logger.info(f"Main page status: {response.status if response else 'No response'}")
+                
+                # Take screenshot for debugging
+                logger.info("Taking screenshot")
+                await page.screenshot(path='/tmp/debug.png')
+                
+                # Get page content for debugging
+                content = await page.content()
+                logger.info(f"Page content length: {len(content)}")
+                logger.info(f"First 500 chars: {content[:500]}")
                 
                 # Click user icon to open login modal
-                logger.info("Clicking user icon")
-                await page.click('button[aria-label="Open user menu"]', timeout=30000)
+                logger.info("Looking for user menu button")
+                user_menu = await page.query_selector('button[aria-label="Open user menu"]')
+                if user_menu:
+                    logger.info("Found user menu button")
+                    await user_menu.click(timeout=60000)
+                else:
+                    logger.error("Could not find user menu button")
+                    raise Exception("User menu button not found")
+                
+                # Wait a bit for the menu to open
+                await page.wait_for_timeout(2000)
                 
                 # Click "Sign in" button
-                logger.info("Clicking sign in")
-                await page.click('button:has-text("Sign in")', timeout=30000)
+                logger.info("Looking for sign in button")
+                sign_in = await page.query_selector('button:has-text("Sign in")')
+                if sign_in:
+                    logger.info("Found sign in button")
+                    await sign_in.click(timeout=60000)
+                else:
+                    logger.error("Could not find sign in button")
+                    raise Exception("Sign in button not found")
+                
+                # Wait a bit for the dialog to open
+                await page.wait_for_timeout(2000)
                 
                 # Click email button
-                logger.info("Clicking email button")
-                await page.click('button[name="Email"]', timeout=30000)
+                logger.info("Looking for email button")
+                email_button = await page.query_selector('button[name="Email"]')
+                if email_button:
+                    logger.info("Found email button")
+                    await email_button.click(timeout=60000)
+                else:
+                    logger.error("Could not find email button")
+                    raise Exception("Email button not found")
+                
+                # Wait a bit for the form to load
+                await page.wait_for_timeout(2000)
                 
                 # Fill in credentials
-                logger.info("Filling login form")
-                await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"), timeout=30000)
-                await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"), timeout=30000)
+                logger.info("Looking for username field")
+                username_field = await page.query_selector('input[name="username"]')
+                if username_field:
+                    logger.info("Found username field")
+                    await username_field.fill(os.getenv("TRADINGVIEW_EMAIL"), timeout=60000)
+                else:
+                    logger.error("Could not find username field")
+                    raise Exception("Username field not found")
+                
+                logger.info("Looking for password field")
+                password_field = await page.query_selector('input[name="password"]')
+                if password_field:
+                    logger.info("Found password field")
+                    await password_field.fill(os.getenv("TRADINGVIEW_PASSWORD"), timeout=60000)
+                else:
+                    logger.error("Could not find password field")
+                    raise Exception("Password field not found")
                 
                 # Submit form
-                logger.info("Submitting login form")
-                await page.click('button[type="submit"]', timeout=30000)
-                await page.wait_for_load_state('load')
+                logger.info("Looking for submit button")
+                submit_button = await page.query_selector('button[type="submit"]')
+                if submit_button:
+                    logger.info("Found submit button")
+                    await submit_button.click(timeout=60000)
+                else:
+                    logger.error("Could not find submit button")
+                    raise Exception("Submit button not found")
+                
+                await page.wait_for_load_state('load', timeout=120000)
                 
                 # Go to news page
                 logger.info("Going to news page")
                 url = f'https://www.tradingview.com/news/?symbol={instrument}'
-                await page.goto(url, wait_until='load', timeout=60000)
+                response = await page.goto(url, wait_until='load', timeout=120000)
+                logger.info(f"News page status: {response.status if response else 'No response'}")
                 
                 # Wait for news feed with retry
                 logger.info("Waiting for news feed")
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        await page.wait_for_selector('.news-feed article', timeout=20000)
+                        await page.wait_for_selector('.news-feed article', timeout=60000)
                         break
                     except Exception as e:
                         if attempt == max_retries - 1:
@@ -143,6 +202,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 # Get first 3 news articles
                 articles = []
                 news_items = await page.query_selector_all('.news-feed article')
+                logger.info(f"Found {len(news_items)} news items")
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     title_el = await item.query_selector('.news-feed__title')
@@ -156,7 +216,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             'content': content.strip()
                         })
                 
-                logger.info(f"Found {len(articles)} articles")
+                logger.info(f"Processed {len(articles)} articles")
                 return articles
                 
             finally:
