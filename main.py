@@ -98,7 +98,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Go directly to news page
                 logger.info("Going to news page")
-                url = f'https://www.tradingview.com/news/?symbol={instrument}'
+                url = f'https://www.tradingview.com/symbols/{instrument}/news/'
                 await page.goto(url, wait_until='networkidle', timeout=120000)
                 await page.wait_for_load_state('domcontentloaded', timeout=120000)
                 await page.wait_for_load_state('load', timeout=120000)
@@ -113,7 +113,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        await page.wait_for_selector('.news-feed article', timeout=60000)
+                        await page.wait_for_selector('.title-HY0D0owe', timeout=60000)
                         break
                     except Exception as e:
                         if attempt == max_retries - 1:
@@ -123,24 +123,17 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Get first 3 news articles
                 articles = []
-                news_items = await page.query_selector_all('.news-feed article')
+                news_items = await page.query_selector_all('.title-HY0D0owe')
                 logger.info(f"Found {len(news_items)} news items")
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     try:
-                        title_el = await item.query_selector('.news-feed__title')
-                        content_el = await item.query_selector('.news-feed__content')
-                        
-                        if title_el and content_el:
-                            title = await title_el.text_content()
-                            content = await content_el.text_content()
-                            
-                            logger.info("Content preview: " + content[:200] + "...")
+                        title = await item.get_attribute('data-overflow-tooltip-text')
+                        if title:
                             logger.info("Found article: " + title)
-                            
                             articles.append({
                                 'title': title.strip(),
-                                'content': content.strip()
+                                'content': title.strip()  # Using title as content since that's what we can access
                             })
                     except Exception as e:
                         logger.warning(f"Error processing news item: {str(e)}")
