@@ -38,16 +38,21 @@ async def login_to_tradingview(page):
     try:
         logger.info("Attempting to log in to TradingView")
         
-        # Track loaded resources
+        # Track loaded resources and potential captcha
         loaded_resources = set()
         required_resources = {
             'auth_page_tvd',
             'runtime',
             'signin-dialog'
         }
+        has_captcha = False
 
         def log_request(request):
             url = request.url
+            nonlocal has_captcha
+            if 'recaptcha' in url or 'gstatic' in url:
+                has_captcha = True
+                logger.warning("Detected reCAPTCHA on page")
             if not any(ext in url for ext in ['.css', '.png', '.jpg', '.gif', '.woff']):
                 logger.info(f"Network request: {url}")
                 for resource in required_resources:
@@ -56,116 +61,129 @@ async def login_to_tradingview(page):
 
         page.on("request", log_request)
         
-        # Go directly to the email sign in page
-        logger.info("Going to email sign in page")
-        await page.goto('https://www.tradingview.com/accounts/signin/', 
-                       wait_until='networkidle',
-                       timeout=10000)
+        # Try different login URLs
+        login_urls = [
+            'https://www.tradingview.com/#signin',  # Direct hash URL
+            'https://www.tradingview.com/chart/?solution=43000516466',  # Chart with login modal
+            'https://www.tradingview.com/accounts/signin/'  # Traditional signin page
+        ]
         
-        # Wait for required resources with retry
-        logger.info("Waiting for required resources to load")
-        retry_count = 0
-        max_retries = 3
-        
-        while retry_count < max_retries:
-            timeout = time.time() + 5
-            while len(loaded_resources) < len(required_resources) and time.time() < timeout:
-                await page.wait_for_timeout(100)
-                
-            if len(loaded_resources) >= len(required_resources):
-                break
-                
-            logger.warning(f"Retry {retry_count + 1}: Missing resources: {required_resources - loaded_resources}")
-            retry_count += 1
+        for url in login_urls:
+            logger.info(f"Trying login URL: {url}")
+            await page.goto(url, wait_until='networkidle', timeout=10000)
             
-            if retry_count < max_retries:
-                await page.reload()
-        
-        # Wait for the sign-in form to be ready
-        logger.info("Waiting for sign-in form")
-        try:
-            # First try the email form
-            await page.wait_for_selector('form[class*="SignInForm"]', timeout=5000)
-        except:
+            if has_captcha:
+                logger.warning("Detected captcha, trying next URL")
+                continue
+                
             try:
-                # Then try the dialog
-                await page.wait_for_selector('[data-dialog-name*="sign"]', timeout=5000)
-            except:
-                # Finally try any form
-                await page.wait_for_selector('form', timeout=5000)
-        
-        # Try to fill the form using JavaScript with retry
-        logger.info("Attempting to fill form using JavaScript")
-        fill_result = await page.evaluate(f'''() => {{
-            function sleep(ms) {{
-                return new Promise(resolve => setTimeout(resolve, ms));
-            }}
-            
-            async function findElements(maxAttempts = 5) {{
-                for (let attempt = 0; attempt < maxAttempts; attempt++) {{
-                    // Try different strategies to find the email input
-                    const emailInput = document.querySelector('input[type="email"]') || 
-                                     document.querySelector('input[name="username"]') ||
-                                     document.querySelector('input[type="text"]');
-                                     
-                    const passwordInput = document.querySelector('input[type="password"]') ||
-                                        document.querySelector('input[name="password"]');
-                                        
-                    const submitButton = document.querySelector('button[type="submit"]') ||
-                                       document.querySelector('button.tv-button--primary') ||
-                                       Array.from(document.querySelectorAll('button')).find(b => 
-                                           b.textContent.toLowerCase().includes('sign in') ||
-                                           b.textContent.toLowerCase().includes('login')
-                                       );
-                    
-                    if (emailInput && passwordInput && submitButton) {{
-                        return {{ emailInput, passwordInput, submitButton }};
+                # Wait for any of these selectors
+                logger.info("Waiting for login elements")
+                await page.wait_for_selector([
+                    'form[class*="SignInForm"]',
+                    '[data-dialog-name*="sign"]',
+                    'button[data-name="header-signin-button"]',
+                    '.tv-header__user-menu-button'
+                ], timeout=5000)
+                
+                # Check if we're already logged in
+                is_logged_in = await page.evaluate('''() => {
+                    return !!document.querySelector('.tv-header__user-menu-button');
+                }''')
+                
+                if is_logged_in:
+                    logger.info("Already logged in")
+                    return
+                
+                # Try to fill the form using JavaScript with retry
+                logger.info("Attempting to fill form using JavaScript")
+                fill_result = await page.evaluate(f'''() => {{
+                    function sleep(ms) {{
+                        return new Promise(resolve => setTimeout(resolve, ms));
                     }}
                     
-                    // Wait before next attempt
-                    await sleep(1000);
-                }}
-                
-                return null;
-            }}
-            
-            return findElements().then(elements => {{
-                if (!elements) {{
-                    return {{
-                        success: false,
-                        error: 'Could not find elements after multiple attempts'
-                    }};
-                }}
-                
-                const {{ emailInput, passwordInput, submitButton }} = elements;
-                
-                // Fill in the form
-                emailInput.value = '{os.getenv("TRADINGVIEW_EMAIL")}';
-                emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                
-                passwordInput.value = '{os.getenv("TRADINGVIEW_PASSWORD")}';
-                passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                
-                // Small delay before clicking
-                return sleep(500).then(() => {{
-                    submitButton.click();
-                    return {{ 
-                        success: true,
-                        elements: {{
-                            email: emailInput.outerHTML,
-                            password: passwordInput.outerHTML,
-                            submit: submitButton.outerHTML
+                    async function findElements(maxAttempts = 5) {{
+                        for (let attempt = 0; attempt < maxAttempts; attempt++) {{
+                            // First try to click the sign in button if present
+                            const signInButton = document.querySelector('button[data-name="header-signin-button"]');
+                            if (signInButton) {{
+                                signInButton.click();
+                                await sleep(1000);
+                            }}
+                            
+                            // Try different strategies to find the email input
+                            const emailInput = document.querySelector('input[type="email"]') || 
+                                             document.querySelector('input[name="username"]') ||
+                                             document.querySelector('input[type="text"]');
+                                             
+                            const passwordInput = document.querySelector('input[type="password"]') ||
+                                                document.querySelector('input[name="password"]');
+                                                
+                            const submitButton = document.querySelector('button[type="submit"]') ||
+                                               document.querySelector('button.tv-button--primary') ||
+                                               Array.from(document.querySelectorAll('button')).find(b => 
+                                                   b.textContent.toLowerCase().includes('sign in') ||
+                                                   b.textContent.toLowerCase().includes('login')
+                                               );
+                            
+                            if (emailInput && passwordInput && submitButton) {{
+                                return {{ emailInput, passwordInput, submitButton }};
+                            }}
+                            
+                            // Log what we found for debugging
+                            console.log('Attempt', attempt + 1, 'found:', {{
+                                email: !!emailInput,
+                                password: !!passwordInput,
+                                submit: !!submitButton
+                            }});
+                            
+                            await sleep(1000);
                         }}
-                    }};
-                }});
-            }});
-        }}''')
+                        
+                        return null;
+                    }}
+                    
+                    return findElements().then(elements => {{
+                        if (!elements) {{
+                            return {{
+                                success: false,
+                                error: 'Could not find elements after multiple attempts'
+                            }};
+                        }}
+                        
+                        const {{ emailInput, passwordInput, submitButton }} = elements;
+                        
+                        // Fill in the form
+                        emailInput.value = '{os.getenv("TRADINGVIEW_EMAIL")}';
+                        emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        emailInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        
+                        passwordInput.value = '{os.getenv("TRADINGVIEW_PASSWORD")}';
+                        passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        passwordInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        
+                        // Small delay before clicking
+                        return sleep(500).then(() => {{
+                            submitButton.click();
+                            return {{ 
+                                success: true,
+                                elements: {{
+                                    email: emailInput.outerHTML,
+                                    password: passwordInput.outerHTML,
+                                    submit: submitButton.outerHTML
+                                }}
+                            }};
+                        }});
+                    }});
+                }}''')
+                
+                if fill_result.get('success'):
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Failed with URL {url}: {str(e)}")
+                continue
         
-        logger.info(f"Form fill result: {fill_result}")
-        
-        if not fill_result.get('success'):
-            raise Exception(f"Could not find form elements: {fill_result.get('error')}")
-            
         # Wait for login to complete with retry
         logger.info("Waiting for login to complete")
         retry_count = 0
