@@ -150,16 +150,20 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     try:
-                        # Get title before clicking
+                        # Get title and parent link
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        if not title:
-                            logger.warning("Could not find title")
+                        parent = await item.evaluate('element => element.closest("a")')
+                        href = await parent.get_attribute('href')
+                        
+                        if not title or not href:
+                            logger.warning("Could not find title or href")
                             continue
                             
                         logger.info(f"Opening article: {title}")
                         
-                        # Click the header to open article
-                        await item.click()
+                        # Navigate to article
+                        full_url = f"https://www.tradingview.com{href}"
+                        await page.goto(full_url, wait_until='load', timeout=30000)
                         
                         # Wait for article content
                         await page.wait_for_selector('.body-bETdSLzM', timeout=10000)
@@ -174,7 +178,8 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         })
                         
                         # Go back to news page
-                        await page.go_back()
+                        news_url = f'https://www.tradingview.com/symbols/{instrument}/news/'
+                        await page.goto(news_url, wait_until='load', timeout=30000)
                         await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
                             
                     except Exception as e:
