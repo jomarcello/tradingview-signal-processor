@@ -41,7 +41,7 @@ async def login_to_tradingview(page):
         
         # Go directly to the email sign in page
         logger.info("Going to email sign in page")
-        await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle')
+        await page.goto('https://www.tradingview.com/accounts/signin/', wait_until='networkidle', timeout=10000)
         
         # Wait for the page to load and stabilize
         logger.info("Waiting for page to stabilize")
@@ -57,7 +57,7 @@ async def login_to_tradingview(page):
         
         async def wait_for_css(css):
             try:
-                await page.wait_for_selector(f'link[href="{css}"]', timeout=3000)
+                await page.wait_for_selector(f'link[href="{css}"]', timeout=2000)
                 logger.info(f"CSS bundle loaded: {css}")
                 return True
             except Exception as e:
@@ -65,21 +65,25 @@ async def login_to_tradingview(page):
                 return False
         
         # Wait for all CSS bundles in parallel
+        logger.info("Starting parallel CSS bundle loading")
         css_results = await asyncio.gather(*[wait_for_css(css) for css in css_bundles], return_exceptions=True)
         loaded_css = sum(1 for r in css_results if r is True)
         logger.info(f"Loaded {loaded_css} out of {len(css_bundles)} CSS bundles")
         
         # Extra wait for JavaScript initialization (shorter)
-        await page.wait_for_timeout(3000)
+        logger.info("Waiting for JavaScript initialization")
+        await page.wait_for_timeout(2000)
         
         # Take screenshot before any frame switching
+        logger.info("Taking screenshot of signin page")
         await page.screenshot(path="/tmp/signin-page.png")
         
         # Log the current URL and content
         current_url = page.url
         content = await page.content()
         logger.info(f"Current URL: {current_url}")
-        logger.info(f"Page content: {content[:1000]}...")
+        logger.info(f"Page content length: {len(content)} characters")
+        logger.info(f"Page content preview: {content[:500]}...")
         
         # Check for and switch to login iframe if present
         iframes = page.frames
@@ -117,7 +121,7 @@ async def login_to_tradingview(page):
                     continue
                 
                 # Wait for and fill in email field
-                email_elem = await main_frame.wait_for_selector(email_selector, timeout=3000, state='visible')
+                email_elem = await main_frame.wait_for_selector(email_selector, timeout=2000, state='visible')
                 if not email_elem:
                     logger.warning(f"Email field {email_selector} not visible")
                     continue
@@ -126,7 +130,7 @@ async def login_to_tradingview(page):
                 logger.info("Filled email field")
                 
                 # Wait for and fill in password field
-                password_elem = await main_frame.wait_for_selector(password_selector, timeout=3000, state='visible')
+                password_elem = await main_frame.wait_for_selector(password_selector, timeout=2000, state='visible')
                 if not password_elem:
                     logger.warning(f"Password field {password_selector} not visible")
                     continue
@@ -153,9 +157,10 @@ async def login_to_tradingview(page):
                             logger.warning(f"Submit button {submit_selector} not found in DOM")
                             continue
                             
-                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=3000, state='visible')
+                        submit_elem = await main_frame.wait_for_selector(submit_selector, timeout=2000, state='visible')
                         if submit_elem:
                             # Take screenshot before clicking
+                            logger.info("Taking screenshot before submit")
                             await page.screenshot(path="/tmp/before-submit.png")
                             await submit_elem.click()
                             logger.info("Clicked submit button")
@@ -165,7 +170,8 @@ async def login_to_tradingview(page):
                         continue
                 
                 # Wait for login to complete
-                await page.wait_for_selector('.tv-header__user-menu-button', timeout=5000)
+                logger.info("Waiting for login to complete")
+                await page.wait_for_selector('.tv-header__user-menu-button', timeout=3000)
                 logger.info("Successfully logged in to TradingView")
                 logged_in = True
                 break
@@ -179,6 +185,7 @@ async def login_to_tradingview(page):
     except Exception as e:
         logger.error(f"Failed to log in to TradingView: {str(e)}")
         # Only take screenshot if we're on the main page
+        logger.info("Taking error screenshot")
         await page.screenshot(path="/tmp/login-error.png")
         raise HTTPException(status_code=500, detail=f"Failed to log in to TradingView: {str(e)}")
 
