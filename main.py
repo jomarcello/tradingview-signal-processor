@@ -101,8 +101,10 @@ async def login_to_tradingview(page):
                 logger.info(f"Trying selectors: {email_selector}, {password_selector}")
                 
                 # First check if elements exist using proper JavaScript syntax
-                email_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{email_selector.replace("'", "\\'")}')''')
-                password_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{password_selector.replace("'", "\\'")}')''')
+                js_email_selector = email_selector.replace("'", "\\'")
+                js_password_selector = password_selector.replace("'", "\\'")
+                email_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_email_selector}')")
+                password_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_password_selector}')")
                 
                 if not email_exists or not password_exists:
                     logger.warning(f"Elements not found in DOM: email={email_exists}, password={password_exists}")
@@ -140,7 +142,8 @@ async def login_to_tradingview(page):
                     try:
                         logger.info(f"Trying to click submit button: {submit_selector}")
                         # First check if button exists using proper JavaScript syntax
-                        button_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{submit_selector.replace("'", "\\'")}')''')
+                        js_submit_selector = submit_selector.replace("'", "\\'")
+                        button_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_submit_selector}')")
                         if not button_exists:
                             logger.warning(f"Submit button {submit_selector} not found in DOM")
                             continue
