@@ -559,46 +559,34 @@ async def root():
 async def process_trading_signal(signal: TradingSignal):
     try:
         async with async_playwright() as p:
-            # Launch browser with minimal settings
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+            # Launch browser with debug logging
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-gpu'
+                ]
+            )
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            page = await context.new_page()
             
             try:
-                # Go directly to news page
-                url = f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
-                logger.info(f"Navigating to {url}")
-                await page.goto(url)
+                # First login to TradingView
+                await login_to_tradingview(page)
                 
-                # Wait for news container
-                await page.wait_for_selector('.card-HY0D0owe', timeout=10000)
+                # Get news data
+                news_data = await scrape_news(page, signal.instrument)
                 
-                # Get all news items
-                news_items = await page.query_selector_all('.card-HY0D0owe')
-                
-                if not news_items:
-                    return {
-                        "status": "error",
-                        "message": "No news found",
-                        "data": None
-                    }
-                
-                # Get first news item
-                first_news = news_items[0]
-                
-                # Get title and link
-                title_el = await first_news.query_selector('[data-name="news-headline-title"]')
-                title = await title_el.text_content() if title_el else "No title"
-                
-                href = await first_news.get_attribute('href')
-                article_url = f"https://www.tradingview.com{href}"
-                
-                # Navigate to article
-                await page.goto(article_url)
-                
-                # Wait for article content
-                article = await page.wait_for_selector('article')
-                content = await article.text_content()
-                
+                # Return only the news data
                 return {
                     "status": "success",
                     "message": "Signal processed successfully",
@@ -607,11 +595,7 @@ async def process_trading_signal(signal: TradingSignal):
                             "instrument": signal.instrument,
                             "timestamp": signal.timestamp
                         },
-                        "news": {
-                            "title": title.strip(),
-                            "content": content.strip(),
-                            "url": article_url
-                        },
+                        "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
                         "timestamp": signal.timestamp
                     }
                 }
