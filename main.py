@@ -96,22 +96,36 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 page = await context.new_page()
                 logger.info("Created new page")
                 
-                # First login
-                logger.info("Navigating to login page")
-                await page.goto('https://www.tradingview.com/#signin', wait_until='load', timeout=60000)
+                # First go to main page
+                logger.info("Going to main page")
+                await page.goto('https://www.tradingview.com/', wait_until='load', timeout=60000)
                 
+                # Click user icon to open login modal
+                logger.info("Clicking user icon")
+                await page.click('button[aria-label="Open user menu"]', timeout=30000)
+                
+                # Click "Sign in" button
+                logger.info("Clicking sign in")
+                await page.click('button:has-text("Sign in")', timeout=30000)
+                
+                # Click email button
+                logger.info("Clicking email button")
+                await page.click('button[name="Email"]', timeout=30000)
+                
+                # Fill in credentials
                 logger.info("Filling login form")
-                await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"))
-                await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"))
+                await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"), timeout=30000)
+                await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"), timeout=30000)
                 
+                # Submit form
                 logger.info("Submitting login form")
-                await page.click('button[type="submit"]')
+                await page.click('button[type="submit"]', timeout=30000)
                 await page.wait_for_load_state('load')
                 
                 # Go to news page
                 logger.info("Going to news page")
                 url = f'https://www.tradingview.com/news/?symbol={instrument}'
-                await page.goto(url, wait_until='load')
+                await page.goto(url, wait_until='load', timeout=60000)
                 
                 # Wait for news feed with retry
                 logger.info("Waiting for news feed")
@@ -126,11 +140,11 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
                         await page.reload()
                 
-                # Get news content
+                # Get first 3 news articles
                 articles = []
                 news_items = await page.query_selector_all('.news-feed article')
                 
-                for item in news_items:
+                for item in news_items[:3]:  # Only get first 3 articles
                     title_el = await item.query_selector('.news-feed__title')
                     content_el = await item.query_selector('.news-feed__content')
                     
