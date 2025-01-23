@@ -178,12 +178,26 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         await page.goto(full_url, wait_until='load', timeout=30000)
                         
                         try:
-                            # Wait for article content
+                            # Wait for article content to load
                             logger.info("Waiting for article content")
-                            await page.wait_for_selector('.body-bETdSLzM', timeout=10000)
                             
-                            # Get full article content
-                            content = await page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
+                            # Try different selectors for the content
+                            content = None
+                            selectors = [
+                                '.body-bETdSLzM',  # Original selector
+                                'article p',  # Paragraphs within article
+                                '.tv-news-content',  # News content class
+                                '.tv-news__content'  # Alternative news content class
+                            ]
+                            
+                            for selector in selectors:
+                                try:
+                                    await page.wait_for_selector(selector, timeout=5000)
+                                    content = await page.evaluate(f'() => document.querySelector("{selector}").innerText')
+                                    if content and len(content.strip()) > 0:
+                                        break
+                                except Exception:
+                                    continue
                             
                             if content and len(content.strip()) > 0:
                                 logger.info(f"Found article content: {content[:100]}...")
