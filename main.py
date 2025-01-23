@@ -38,23 +38,55 @@ async def login_to_tradingview(page):
             'Upgrade-Insecure-Requests': '1',
         })
         
-        # Go directly to email login
-        await page.goto('https://www.tradingview.com/#signin')
+        # Go to main page first
+        logger.info("Going to main page")
+        await page.goto('https://www.tradingview.com/')
         
-        # Take screenshot for debugging
-        await page.screenshot(path="/tmp/login-page.png")
+        # Wait for the page to load and stabilize
+        await page.wait_for_load_state('networkidle')
+        
+        # Take screenshot of main page
+        await page.screenshot(path="/tmp/main-page.png")
+        
+        # Find and click the "Sign in" button
+        logger.info("Looking for Sign in button")
+        sign_in_buttons = [
+            'button:has-text("Sign in")',
+            'a:has-text("Sign in")',
+            '[data-name="header-user-menu-sign-in"]',
+            '.tv-header__user-menu-button'
+        ]
+        
+        for button_selector in sign_in_buttons:
+            try:
+                logger.info(f"Trying to click sign in button: {button_selector}")
+                await page.click(button_selector, timeout=5000)
+                logger.info("Successfully clicked sign in button")
+                break
+            except Exception as e:
+                logger.warning(f"Failed to click {button_selector}: {str(e)}")
+                continue
+        
+        # Wait for login form to appear
+        logger.info("Waiting for login form to load")
+        await page.wait_for_load_state('networkidle')
+        await page.wait_for_timeout(2000)  # Extra wait for animation
+        
+        # Take screenshot of login form
+        await page.screenshot(path="/tmp/login-form.png")
         
         # Log the current URL and content
         current_url = page.url
         content = await page.content()
-        logger.info(f"Current URL: {current_url}")
+        logger.info(f"Current URL after clicking sign in: {current_url}")
         logger.info(f"Page content: {content[:500]}...")
         
         # Try different selectors for email/password fields
         selectors = [
             ('input[name="username"]', 'input[name="password"]'),
             ('input[type="email"]', 'input[type="password"]'),
-            ('#email-signin__user-name-input', '#email-signin__password-input')
+            ('#email-signin__user-name-input', '#email-signin__password-input'),
+            ('form input[type="text"]', 'form input[type="password"]')
         ]
         
         logged_in = False
@@ -65,14 +97,29 @@ async def login_to_tradingview(page):
                 # Wait for and fill in email field
                 await page.wait_for_selector(email_selector, timeout=5000)
                 await page.fill(email_selector, TRADINGVIEW_EMAIL)
+                logger.info("Filled email field")
                 
                 # Wait for and fill in password field
                 await page.wait_for_selector(password_selector, timeout=5000)
                 await page.fill(password_selector, TRADINGVIEW_PASSWORD)
+                logger.info("Filled password field")
                 
                 # Find and click sign in button
-                sign_in_button = page.locator('button:has-text("Sign in")')
-                await sign_in_button.click()
+                submit_buttons = [
+                    'button[type="submit"]',
+                    'button:has-text("Sign in")',
+                    '[data-name="submit"]'
+                ]
+                
+                for submit_selector in submit_buttons:
+                    try:
+                        logger.info(f"Trying to click submit button: {submit_selector}")
+                        await page.click(submit_selector, timeout=5000)
+                        logger.info("Clicked submit button")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to click {submit_selector}: {str(e)}")
+                        continue
                 
                 # Wait for login to complete
                 await page.wait_for_selector('.tv-header__user-menu-button', timeout=10000)
