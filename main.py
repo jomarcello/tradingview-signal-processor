@@ -143,31 +143,72 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         await page.evaluate('window.scrollBy(0, 500)')
                         await page.wait_for_timeout(2000)
                 
-                # Get first 3 news articles
+                # Get news articles with content
                 articles = []
                 news_items = await page.query_selector_all('.title-HY0D0owe')
                 logger.info(f"Found {len(news_items)} news items")
                 
-                for item in news_items[:3]:  # Only get first 3 articles
+                # Keep track of which items we've processed
+                processed = 0
+                
+                while len(articles) < 3 and processed < len(news_items):
                     try:
-                        # Get title from data attribute
+                        item = news_items[processed]
+                        processed += 1
+                        
+                        # Get title and parent link
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        if not title:
-                            logger.warning("Could not find title")
+                        parent = await item.evaluate('element => element.closest("a")')
+                        href = await parent.get_attribute('href')
+                        
+                        if not title or not href:
+                            logger.warning("Could not find title or href")
                             continue
                             
-                        logger.info(f"Found article: {title}")
-                        articles.append({
-                            'title': title.strip(),
-                            'content': title.strip()  # For now, just use title as content
-                        })
+                        # Skip Mace News articles
+                        if 'macenews:' in href:
+                            logger.info(f"Skipping Mace News article: {title}")
+                            continue
+                            
+                        logger.info(f"Opening article: {title}")
+                        
+                        # Navigate to article
+                        full_url = f"https://www.tradingview.com{href}"
+                        logger.info(f"Navigating to: {full_url}")
+                        await page.goto(full_url, wait_until='load', timeout=30000)
+                        
+                        try:
+                            # Wait for article content
+                            logger.info("Waiting for article content")
+                            await page.wait_for_selector('.body-bETdSLzM', timeout=10000)
+                            
+                            # Get full article content
+                            content = await page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
+                            
+                            if content and len(content.strip()) > 0:
+                                logger.info(f"Found article content: {content[:100]}...")
+                                articles.append({
+                                    'title': title.strip(),
+                                    'content': content.strip()
+                                })
+                            else:
+                                logger.info("Article has no content, skipping")
+                        except Exception as e:
+                            logger.warning(f"Could not get content, skipping: {str(e)}")
+                            continue
+                        
+                        # Go back to news page
+                        news_url = f'https://www.tradingview.com/symbols/{instrument}/news/'
+                        logger.info(f"Going back to: {news_url}")
+                        await page.goto(news_url, wait_until='load', timeout=30000)
+                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
                             
                     except Exception as e:
                         logger.warning(f"Error processing news item: {str(e)}")
                         continue
                 
                 if not articles:
-                    raise Exception("No articles found")
+                    raise Exception("No articles with content found")
                 
                 return articles
         
