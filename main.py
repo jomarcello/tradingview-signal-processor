@@ -74,34 +74,25 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
             import subprocess
             subprocess.run(['playwright', 'install', 'chromium'])
             
-            # Launch browser with more conservative options
-            logger.info("Launching browser")
+            # Launch browser with custom user agent
             browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage'
-                ]
+                headless=True
             )
             
-            # Create context with minimal options
-            logger.info("Creating context")
+            # Create context with user agent
             context = await browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
             
+            logger.info("Creating context")
+            page = await context.new_page()
+            logger.info("Created new page")
+            
             try:
-                page = await context.new_page()
-                logger.info("Created new page")
-                
                 # Go directly to news page
                 logger.info("Going to news page")
                 url = f'https://www.tradingview.com/symbols/{instrument}/news/'
-                await page.goto(url, wait_until='networkidle', timeout=120000)
-                await page.wait_for_load_state('domcontentloaded', timeout=120000)
-                await page.wait_for_load_state('load', timeout=120000)
+                await page.goto(url, wait_until='load', timeout=30000)  # Reduced timeout, only wait for load
                 logger.info("News page loaded")
                 
                 # Take screenshot for debugging
@@ -113,13 +104,13 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        await page.wait_for_selector('.title-HY0D0owe', timeout=60000)
+                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)  # Reduced timeout
                         break
                     except Exception as e:
                         if attempt == max_retries - 1:
                             raise
                         logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
-                        await page.reload()
+                        await page.reload(wait_until='load', timeout=30000)  # Also reduced timeout here
                 
                 # Get first 3 news articles
                 articles = []
