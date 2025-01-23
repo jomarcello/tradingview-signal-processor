@@ -359,8 +359,10 @@ async def scrape_news(page, symbol):
                                 'article p',  // Get all paragraphs inside article
                                 '.body-KX2tCBZq p',  // Alternative class
                                 '.content-pIO_GYwT p',  // Another alternative
+                                '.body-pIO_GYwT p',  // Another body class
                                 'article li',  // List items in article
-                                '.body-KX2tCBZq li'  // List items in body
+                                '.body-KX2tCBZq li',  // List items in body
+                                '.body-pIO_GYwT li'  // List items in alternative body
                             ];
                             
                             let textContent = [];
@@ -370,8 +372,13 @@ async def scrape_news(page, symbol):
                                 const elements = document.querySelectorAll(selector);
                                 if (elements.length > 0) {
                                     elements.forEach(el => {
+                                        // Skip empty text or social share buttons
+                                        if (el.closest('.timeAndSocialShare-pIO_GYwT')) return;
+                                        
                                         const text = el.textContent.trim();
-                                        if (text) textContent.push(text);
+                                        if (text && !textContent.includes(text)) {
+                                            textContent.push(text);
+                                        }
                                     });
                                 }
                             }
@@ -379,14 +386,28 @@ async def scrape_news(page, symbol):
                             // Get key points if available
                             const keyPoints = document.querySelector('.summary-pIO_GYwT');
                             if (keyPoints) {
-                                const keyPointsText = keyPoints.textContent.trim();
-                                if (keyPointsText) textContent.unshift("Key points:", keyPointsText);
+                                const points = Array.from(keyPoints.querySelectorAll('li'))
+                                    .map(li => li.textContent.trim())
+                                    .filter(text => text);
+                                    
+                                if (points.length > 0) {
+                                    textContent.unshift("Key points:", ...points);
+                                }
+                            }
+                            
+                            // If no content found, try getting all text from the article
+                            if (textContent.length === 0) {
+                                const article = document.querySelector('article');
+                                if (article) {
+                                    const text = article.textContent.trim();
+                                    if (text) textContent.push(text);
+                                }
                             }
                             
                             return textContent.join('\n\n');
                         }''')
                         
-                        if article_content:
+                        if article_content and article_content.trim():
                             article_data['content'] = article_content
                             logger.info("Successfully retrieved article text content")
                         else:
@@ -394,7 +415,8 @@ async def scrape_news(page, symbol):
                             article_data['content'] = "No content found"
                             
                     except Exception as e:
-                        logger.warning(f"Error extracting article text: {str(e)}")
+                        logger.error(f"Error extracting article text: {str(e)}")
+                        logger.error(f"Page content: {await page.content()}")
                         article_data['content'] = "Error extracting content"
                     
                     news_data.append(article_data)
