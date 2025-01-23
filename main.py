@@ -10,9 +10,13 @@ import os
 from dotenv import load_dotenv
 import time
 from pydantic import BaseModel
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 # Get TradingView credentials from environment
 TRADINGVIEW_EMAIL = os.getenv('TRADINGVIEW_EMAIL')
@@ -361,13 +365,13 @@ async def scrape_news(page, symbol):
                             try {
                                 // Try different selectors for article content
                                 const selectors = [
-                                    'article p',  // Get all paragraphs inside article
-                                    '.body-KX2tCBZq p',  // Alternative class
-                                    '.content-pIO_GYwT p',  // Another alternative
-                                    '.body-pIO_GYwT p',  // Another body class
-                                    'article li',  // List items in article
-                                    '.body-KX2tCBZq li',  // List items in body
-                                    '.body-pIO_GYwT li'  // List items in alternative body
+                                    'article p',  # Get all paragraphs inside article
+                                    '.body-KX2tCBZq p',  # Alternative class
+                                    '.content-pIO_GYwT p',  # Another alternative
+                                    '.body-pIO_GYwT p',  # Another body class
+                                    'article li',  # List items in article
+                                    '.body-KX2tCBZq li',  # List items in body
+                                    '.body-pIO_GYwT li'  # List items in alternative body
                                 ];
                                 
                                 let textContent = [];
@@ -542,6 +546,41 @@ async def analyze_sentiment(content: str) -> Dict:
         "bearish_words": bearish_count
     }
 
+async def summarize_article(content: str) -> dict:
+    """Generate a summary of the article using OpenAI."""
+    try:
+        # Create the chat completion
+        response = await client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Je bent een expert in het analyseren van financieel nieuws. Maak een korte maar krachtige samenvatting van het artikel met de belangrijkste punten en mogelijke impact op de markt. Gebruik Nederlands."
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+        
+        # Extract the summary
+        summary = response.choices[0].message.content
+        
+        return {
+            "summary": summary,
+            "tokens_used": response.usage.total_tokens
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
+        return {
+            "summary": "Error generating summary",
+            "tokens_used": 0
+        }
+
 @app.get("/")
 async def root():
     return {
@@ -556,59 +595,41 @@ async def root():
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal):
     try:
-        logger.info(f"Received trading signal: {json.dumps(signal.dict(), indent=2)}")
-        
-        # Initialize Playwright
-        logger.info("Starting news scraping for EURUSD")
-        logger.info(f"Using symbol: {signal.instrument}")
         async with async_playwright() as p:
-            # Launch browser with optimized settings
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-gpu',
-                    '--disable-dev-shm-usage',
-                    '--disable-setuid-sandbox',
-                    '--no-sandbox',
-                    '--disable-extensions',
-                    '--disable-notifications',
-                    '--disable-geolocation'
-                ]
-            )
+            # Launch browser
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
             
-            # Create a new context with specific settings
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 720},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                java_script_enabled=True,
-                bypass_csp=True,
-                ignore_https_errors=True
-            )
-
-            # Add route to block unnecessary resources
-            await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,otf,eot}", lambda route: route.abort())
-            await context.route("**/{analytics,tracking,advertisement}**", lambda route: route.abort())
-            
-            # Create new page
-            logger.info("Creating new page")
-            page = await context.new_page()
+            # Login to TradingView
+            await login_to_tradingview(page)
             
             try:
-                # Login to TradingView
-                await login_to_tradingview(page)
-                
-                # Now scrape news
+                # Get news data
                 news_data = await scrape_news(page, signal.instrument)
+                
+                # Generate summary
+                if len(news_data) > 0 and news_data[0]['content'] != "No content found":
+                    summary_data = await summarize_article(news_data[0]['content'])
+                else:
+                    summary_data = {
+                        "summary": "No article content to summarize",
+                        "tokens_used": 0
+                    }
                 
                 # Analyze sentiment
                 sentiment = await analyze_sentiment(news_data[0]['content'])
                 
                 # Combine all data
                 combined_data = {
-                    "signal": signal.dict(),
+                    "signal": {
+                        "instrument": signal.instrument,
+                        "timestamp": signal.timestamp
+                    },
                     "news": {
                         "title": news_data[0]['title'],
                         "content": news_data[0]['content'],
+                        "summary": summary_data['summary'],
+                        "tokens_used": summary_data['tokens_used'],
                         "url": f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
                     },
                     "sentiment": sentiment,
@@ -620,14 +641,25 @@ async def process_trading_signal(signal: TradingSignal):
                     "message": "Signal processed successfully",
                     "data": combined_data
                 }
+                
             except Exception as e:
-                logger.error(f"Error during processing: {str(e)}")
-                raise HTTPException(status_code=500, detail=str(e))
+                logger.error(f"Error processing signal: {str(e)}")
+                return {
+                    "status": "error",
+                    "message": f"Error processing signal: {str(e)}",
+                    "data": None
+                }
+            
             finally:
                 await browser.close()
+                
     except Exception as e:
-        logger.error(f"Error processing signal: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error launching browser: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Error launching browser: {str(e)}",
+            "data": None
+        }
 
 @app.get("/health")
 async def health_check():
