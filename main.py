@@ -33,14 +33,31 @@ async def get_news(pair: str) -> Dict:
         browser = await p.chromium.launch(headless=True)
         try:
             logger.info("Creating new page")
-            page = await browser.new_page()
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
             
             url = f"https://www.tradingview.com/symbols/{symbol}/news/"
             logger.info(f"Navigating to {url}")
             await page.goto(url)
             
+            # Take screenshot and log page content
+            await page.screenshot(path="/tmp/page.png")
+            content = await page.content()
+            logger.info(f"Page content: {content[:500]}...")  # Log first 500 chars
+            
             logger.info("Waiting for news table")
-            await page.wait_for_selector('.news-table')
+            try:
+                await page.wait_for_selector('.news-table', timeout=5000)
+            except Exception as e:
+                logger.error("Could not find news table, checking for login wall")
+                if "sign in" in content.lower() or "log in" in content.lower():
+                    raise HTTPException(
+                        status_code=500,
+                        detail="TradingView requires login to view news. Please implement login functionality."
+                    )
+                raise e
             
             logger.info("Finding first news article")
             first_news = page.locator('.news-table tr:first-child td.desc a')
