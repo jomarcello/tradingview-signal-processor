@@ -63,9 +63,9 @@ async def get_browser():
             '--js-flags=--max-old-space-size=500'  # Limit JS heap size
         ])
 
-async def login_to_tradingview():
-    """Login to TradingView using Playwright's built-in authentication"""
-    logger.info("Starting login with Playwright")
+async def get_news_with_playwright(instrument: str) -> List[dict]:
+    """Get news for a specific instrument using Playwright"""
+    logger.info(f"Getting news for {instrument}")
     
     try:
         browser = await get_browser()
@@ -76,89 +76,61 @@ async def login_to_tradingview():
         
         page = await context.new_page()
         
-        # Go to login page with increased timeout
-        logger.info("Navigating to login page")
+        # First login
+        logger.info("Logging in")
         await page.goto('https://www.tradingview.com/#signin', wait_until='networkidle', timeout=60000)
-        
-        # Fill in credentials with increased timeout
-        logger.info("Filling in credentials")
         await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"), timeout=60000)
         await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"), timeout=60000)
-        
-        # Click sign in button and wait for navigation
-        logger.info("Clicking sign in button")
         await page.click('button[type="submit"]', timeout=60000)
         await page.wait_for_load_state('networkidle', timeout=60000)
         
-        # Get cookies after successful login
-        logger.info("Getting cookies")
-        cookies = await context.cookies()
-        cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+        # Go to news page
+        logger.info("Going to news page")
+        url = f'https://www.tradingview.com/news/?symbol={instrument}'
+        await page.goto(url, timeout=60000)
+        await page.wait_for_load_state('networkidle', timeout=60000)
+        
+        # Wait for news feed
+        logger.info("Waiting for news feed")
+        await page.wait_for_selector('.news-feed article', timeout=60000)
+        
+        # Get news content
+        articles = []
+        news_items = await page.query_selector_all('.news-feed article')
+        
+        for item in news_items:
+            title_el = await item.query_selector('.news-feed__title')
+            content_el = await item.query_selector('.news-feed__content')
+            
+            if title_el and content_el:
+                title = await title_el.text_content()
+                content = await content_el.text_content()
+                articles.append({
+                    'title': title.strip(),
+                    'content': content.strip()
+                })
+        
+        logger.info(f"Found {len(articles)} articles")
         
         await context.close()
         await browser.close()
         
-        logger.info("Login successful")
-        return cookie_dict
+        return articles
         
-    except Exception as e:
-        logger.error(f"Login failed with error: {str(e)}")
-        logger.error(f"Error traceback: {traceback.format_exc()}")
-        raise
-
-async def get_news_for_instrument(instrument: str) -> List[dict]:
-    """Get news for a specific instrument"""
-    logger.info(f"Getting news for {instrument}")
-    
-    try:
-        # Get cookies from successful login
-        cookies = await login_to_tradingview()
-        logger.info("Got cookies from login")
-        
-        # Use cookies for subsequent requests
-        timeout = aiohttp.ClientTimeout(total=60)  # 60 seconds timeout
-        async with aiohttp.ClientSession(cookies=cookies, timeout=timeout) as session:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-            }
-            
-            url = f'https://www.tradingview.com/news/?symbol={instrument}'
-            logger.info(f"Fetching news from {url}")
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    logger.info("Got HTML response")
-                    
-                    # Extract news articles using BeautifulSoup
-                    soup = BeautifulSoup(html, 'html.parser')
-                    articles = []
-                    
-                    for article in soup.select('.news-feed article'):
-                        title = article.select_one('.news-feed__title')
-                        content = article.select_one('.news-feed__content')
-                        if title and content:
-                            articles.append({
-                                'title': title.text.strip(),
-                                'content': content.text.strip()
-                            })
-                    
-                    logger.info(f"Found {len(articles)} articles")
-                    return articles
-                else:
-                    raise Exception(f"Failed to get news: HTTP {response.status}")
-                    
     except Exception as e:
         logger.error(f"Failed to get news: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
+        if 'context' in locals():
+            await context.close()
+        if 'browser' in locals():
+            await browser.close()
         raise
 
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal):
-    logger.info("Starting to process trading signal")
+    """Process a trading signal and retrieve relevant news"""
     try:
-        news_data = await get_news_for_instrument(signal.instrument)
+        news_data = await get_news_with_playwright(signal.instrument)
         logger.info(f"News data scraped successfully: {news_data}")
         
         return {
