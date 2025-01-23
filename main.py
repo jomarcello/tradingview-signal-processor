@@ -112,12 +112,12 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
                         await page.reload(wait_until='load', timeout=30000)  # Also reduced timeout here
                 
-                # Get first 3 news articles
+                # Get all news articles
                 articles = []
                 news_items = await page.query_selector_all('.title-HY0D0owe')
                 logger.info(f"Found {len(news_items)} news items")
                 
-                for item in news_items[:3]:  # Only get first 3 articles
+                for item in news_items:  
                     try:
                         title = await item.get_attribute('data-overflow-tooltip-text')
                         if title:
@@ -130,9 +130,13 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.warning(f"Error processing news item: {str(e)}")
                         continue
                 
-                logger.info(f"Processed {len(articles)} articles")
-                return articles
-                
+                # Return all articles found
+                if articles:
+                    logger.info(f"Successfully found {len(articles)} articles")
+                    return articles
+                else:
+                    raise Exception("No articles found")
+        
             finally:
                 logger.info("Cleaning up browser resources")
                 await context.close()
