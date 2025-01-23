@@ -103,7 +103,24 @@ async def login_to_tradingview_with_requests():
                             cookies = alt_response.cookies
                             return {cookie.key: cookie.value for cookie in cookies.values()}
                         else:
-                            raise Exception(f"Login failed with status {alt_response.status}")
+                            # Try third endpoint
+                            logger.info("Second login attempt failed, trying third endpoint")
+                            async with session.post(
+                                'https://www.tradingview.com/api/v1/user/signin/',
+                                headers=headers,
+                                json={
+                                    "username": os.getenv("TRADINGVIEW_EMAIL"),
+                                    "password": os.getenv("TRADINGVIEW_PASSWORD"),
+                                    "remember": True
+                                },
+                                timeout=REQUEST_TIMEOUT
+                            ) as third_response:
+                                if third_response.status == 200:
+                                    logger.info("Login successful via third endpoint")
+                                    cookies = third_response.cookies
+                                    return {cookie.key: cookie.value for cookie in cookies.values()}
+                                else:
+                                    raise Exception(f"Login failed with status {third_response.status}")
                     
         except asyncio.TimeoutError:
             logger.error("Login request timed out")
