@@ -44,19 +44,44 @@ async def login_to_tradingview(page):
                        wait_until='networkidle',
                        timeout=10000)
         
-        # Look for the sign in button in the header
+        # Look for the sign in button in the header with retry
         logger.info("Looking for header sign in button")
-        try:
-            header_signin = await page.wait_for_selector('button[data-name="header-signin-button"]', timeout=5000)
-            if header_signin:
-                logger.info("Found header sign in button, clicking it")
-                await header_signin.click()
-                # Wait for the modal to appear
-                await page.wait_for_selector('[data-dialog-name="sign-in-dialog"]', timeout=5000)
-        except Exception as e:
-            logger.warning(f"Could not find header sign in button: {str(e)}")
+        header_signin = None
+        retry_count = 0
+        
+        while retry_count < 3 and not header_signin:
+            try:
+                # Try different selectors for the header button
+                for selector in [
+                    'button[data-name="header-signin-button"]',
+                    '[data-name="header-signin-button"]',
+                    'button.tv-header__user-menu-button--signin',
+                    '.tv-header__user-menu-button--signin'
+                ]:
+                    try:
+                        header_signin = await page.wait_for_selector(selector, timeout=3000)
+                        if header_signin:
+                            logger.info(f"Found header sign in button with selector: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if header_signin:
+                    break
+                    
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry {retry_count}: Could not find header sign in button")
+                await page.wait_for_timeout(1000)
+        
+        if header_signin:
+            logger.info("Clicking header sign in button")
+            await header_signin.click()
+            # Wait for the modal to appear
+            await page.wait_for_selector('[data-dialog-name="sign-in-dialog"]', timeout=5000)
+        else:
             # If header button not found, try direct URL
-            logger.info("Trying direct sign in URL")
+            logger.info("Header button not found, trying direct sign in URL")
             await page.goto('https://www.tradingview.com/accounts/signin/', 
                           wait_until='networkidle',
                           timeout=10000)
@@ -89,8 +114,8 @@ async def login_to_tradingview(page):
                             'button[type="submit"]',
                             'button.tv-button--primary',
                             'button[data-name*="sign-in"]',
-                            'button:has-text("Sign in")',
-                            'button.submitButton'
+                            'button.submitButton',
+                            'button.tv-button__loader'
                         ]
                     }};
                     
@@ -99,17 +124,30 @@ async def login_to_tradingview(page):
                     // Try each selector
                     for (const emailSelector of selectors.email) {{
                         emailInput = document.querySelector(emailSelector);
-                        if (emailInput) break;
+                        if (emailInput) {{
+                            console.log('Found email input:', emailSelector);
+                            break;
+                        }}
                     }}
                     
                     for (const passwordSelector of selectors.password) {{
                         passwordInput = document.querySelector(passwordSelector);
-                        if (passwordInput) break;
+                        if (passwordInput) {{
+                            console.log('Found password input:', passwordSelector);
+                            break;
+                        }}
                     }}
                     
                     for (const submitSelector of selectors.submit) {{
                         submitButton = document.querySelector(submitSelector);
-                        if (submitButton) break;
+                        if (submitButton) {{
+                            // Extra check: only use button if it contains "sign in" text
+                            if (submitButton.textContent.toLowerCase().includes('sign in') ||
+                                submitButton.textContent.toLowerCase().includes('login')) {{
+                                console.log('Found submit button:', submitSelector);
+                                break;
+                            }}
+                        }}
                     }}
                     
                     // Log what we found
