@@ -119,13 +119,54 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     try:
+                        # Get parent element that contains the link
+                        parent = await item.evaluate('element => element.closest("a")')
+                        if not parent:
+                            logger.warning("Could not find parent link element")
+                            continue
+                            
+                        # Get href attribute
+                        href = await parent.get_attribute('href')
+                        if not href:
+                            logger.warning("Could not find href attribute")
+                            continue
+                            
+                        # Get title
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        if title:
-                            logger.info("Found article: " + title)
+                        if not title:
+                            logger.warning("Could not find title")
+                            continue
+                            
+                        logger.info(f"Opening article: {title}")
+                        
+                        # Open article in new page
+                        article_page = await context.new_page()
+                        try:
+                            full_url = f"https://www.tradingview.com{href}"
+                            await article_page.goto(full_url, wait_until='load', timeout=30000)
+                            
+                            # Wait for article content
+                            await article_page.wait_for_selector('.body-bETdSLzM', timeout=10000)
+                            
+                            # Get full article content
+                            content = await article_page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
+                            
+                            logger.info(f"Found article content: {content[:100]}...")
                             articles.append({
                                 'title': title.strip(),
-                                'content': title.strip()  # Using title as content since that's what we can access
+                                'content': content.strip(),
+                                'url': full_url
                             })
+                        except Exception as e:
+                            logger.warning(f"Error getting article content: {str(e)}")
+                            articles.append({
+                                'title': title.strip(),
+                                'content': title.strip(),  # Fallback to title if we can't get content
+                                'url': full_url
+                            })
+                        finally:
+                            await article_page.close()
+                            
                     except Exception as e:
                         logger.warning(f"Error processing news item: {str(e)}")
                         continue
