@@ -559,8 +559,20 @@ async def root():
 async def process_trading_signal(signal: TradingSignal):
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
+            # Launch browser with basic settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox']
+            )
+            
+            # Create new context with minimal settings
+            context = await browser.new_context(
+                viewport={'width': 1280, 'height': 720},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            
+            # Create new page
+            page = await context.new_page()
             
             try:
                 # First login to TradingView
