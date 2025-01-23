@@ -114,51 +114,94 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Get first 3 news articles
                 articles = []
-                news_items = await page.query_selector_all('.title-HY0D0owe')
-                logger.info(f"Found {len(news_items)} news items")
                 
-                for item in news_items[:3]:  # Only get first 3 articles
+                # Try different selectors for news items
+                selectors = [
+                    '.title-HY0D0owe',  # Original selector
+                    '[data-name="news-headline-title"]',  # Alternative selector
+                    '.title-DmjQR0Aa'  # Another alternative
+                ]
+                
+                news_items = None
+                for selector in selectors:
+                    try:
+                        news_items = await page.query_selector_all(selector)
+                        if news_items and len(news_items) > 0:
+                            logger.info(f"Found {len(news_items)} news items with selector {selector}")
+                            break
+                    except Exception as e:
+                        logger.warning(f"Error with selector {selector}: {str(e)}")
+                        continue
+                
+                if not news_items:
+                    raise Exception("Could not find news items with any selector")
+                
+                for i, item in enumerate(news_items[:3]):  # Only get first 3 articles
                     try:
                         # Get parent element that contains the link
                         parent = await item.evaluate('element => element.closest("a")')
                         if not parent:
-                            logger.warning("Could not find parent link element")
+                            logger.warning(f"Article {i+1}: Could not find parent link element")
                             continue
                             
                         # Get href attribute
                         href = await parent.get_attribute('href')
                         if not href:
-                            logger.warning("Could not find href attribute")
+                            logger.warning(f"Article {i+1}: Could not find href attribute")
                             continue
                             
-                        # Get title
+                        # Try different ways to get title
                         title = await item.get_attribute('data-overflow-tooltip-text')
                         if not title:
-                            logger.warning("Could not find title")
+                            title = await item.text_content()
+                            
+                        if not title:
+                            logger.warning(f"Article {i+1}: Could not find title")
                             continue
                             
-                        logger.info(f"Opening article: {title}")
+                        logger.info(f"Article {i+1}: Opening {href}")
                         
                         # Open article in new page
                         article_page = await context.new_page()
                         try:
                             full_url = f"https://www.tradingview.com{href}"
+                            logger.info(f"Article {i+1}: Loading {full_url}")
                             await article_page.goto(full_url, wait_until='load', timeout=30000)
                             
-                            # Wait for article content
-                            await article_page.wait_for_selector('.body-bETdSLzM', timeout=10000)
+                            # Try different selectors for content
+                            content_selectors = [
+                                '.body-bETdSLzM',  # Original selector
+                                '[data-name="news-article-body"]',  # Alternative selector
+                                'article'  # Generic selector
+                            ]
                             
-                            # Get full article content
-                            content = await article_page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
+                            content = None
+                            for content_selector in content_selectors:
+                                try:
+                                    await article_page.wait_for_selector(content_selector, timeout=10000)
+                                    content = await article_page.evaluate(f'() => document.querySelector("{content_selector}").innerText')
+                                    if content:
+                                        logger.info(f"Article {i+1}: Found content with selector {content_selector}")
+                                        break
+                                except Exception:
+                                    continue
                             
-                            logger.info(f"Found article content: {content[:100]}...")
-                            articles.append({
-                                'title': title.strip(),
-                                'content': content.strip(),
-                                'url': full_url
-                            })
+                            if content:
+                                logger.info(f"Article {i+1}: Found content ({len(content)} chars): {content[:100]}...")
+                                articles.append({
+                                    'title': title.strip(),
+                                    'content': content.strip(),
+                                    'url': full_url
+                                })
+                            else:
+                                logger.warning(f"Article {i+1}: Could not find content with any selector")
+                                articles.append({
+                                    'title': title.strip(),
+                                    'content': title.strip(),  # Fallback to title
+                                    'url': full_url
+                                })
                         except Exception as e:
-                            logger.warning(f"Error getting article content: {str(e)}")
+                            logger.warning(f"Article {i+1}: Error getting content: {str(e)}")
                             articles.append({
                                 'title': title.strip(),
                                 'content': title.strip(),  # Fallback to title if we can't get content
@@ -166,9 +209,10 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             })
                         finally:
                             await article_page.close()
+                            logger.info(f"Article {i+1}: Closed page")
                             
                     except Exception as e:
-                        logger.warning(f"Error processing news item: {str(e)}")
+                        logger.warning(f"Article {i+1}: Error processing: {str(e)}")
                         continue
                 
                 # Return all articles found
