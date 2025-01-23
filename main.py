@@ -46,7 +46,24 @@ async def login_to_tradingview(page):
         logger.info("Waiting for page to stabilize")
         await page.wait_for_load_state('domcontentloaded')
         await page.wait_for_load_state('networkidle')
-        await page.wait_for_timeout(5000)  # Extra wait for JavaScript initialization
+        
+        # Wait for CSS bundles to load
+        css_bundles = [
+            'https://static.tradingview.com/static/bundles/44524.822aea2118d5fb32382f.css',
+            'https://static.tradingview.com/static/bundles/62093.5d0098bab0d2d4ea02e5.css',
+            'https://static.tradingview.com/static/bundles/4752.aac2f2a838ddc6c166c7.css'
+        ]
+        
+        for css in css_bundles:
+            try:
+                await page.wait_for_load_state('networkidle')
+                logger.info(f"Waiting for CSS bundle: {css}")
+                await page.wait_for_selector(f'link[href="{css}"]')
+            except Exception as e:
+                logger.warning(f"Failed to wait for CSS bundle {css}: {str(e)}")
+        
+        # Extra wait for JavaScript initialization
+        await page.wait_for_timeout(5000)
         
         # Take screenshot before any frame switching
         await page.screenshot(path="/tmp/signin-page.png")
@@ -55,7 +72,7 @@ async def login_to_tradingview(page):
         current_url = page.url
         content = await page.content()
         logger.info(f"Current URL: {current_url}")
-        logger.info(f"Page content: {content[:1000]}...")  # Show more content for debugging
+        logger.info(f"Page content: {content[:1000]}...")
         
         # Check for and switch to login iframe if present
         iframes = page.frames
@@ -84,9 +101,9 @@ async def login_to_tradingview(page):
             try:
                 logger.info(f"Trying selectors: {email_selector}, {password_selector}")
                 
-                # First check if elements exist
-                email_exists = await main_frame.evaluate(f'!!document.querySelector("{email_selector}")')
-                password_exists = await main_frame.evaluate(f'!!document.querySelector("{password_selector}")')
+                # First check if elements exist using proper JavaScript syntax
+                email_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{email_selector.replace("'", "\\'")}')''')
+                password_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{password_selector.replace("'", "\\'")}')''')
                 
                 if not email_exists or not password_exists:
                     logger.warning(f"Elements not found in DOM: email={email_exists}, password={password_exists}")
@@ -123,8 +140,8 @@ async def login_to_tradingview(page):
                 for submit_selector in submit_buttons:
                     try:
                         logger.info(f"Trying to click submit button: {submit_selector}")
-                        # First check if button exists
-                        button_exists = await main_frame.evaluate(f'!!document.querySelector("{submit_selector}")')
+                        # First check if button exists using proper JavaScript syntax
+                        button_exists = await main_frame.evaluate(f'''() => !!document.querySelector('{submit_selector.replace("'", "\\'")}')''')
                         if not button_exists:
                             logger.warning(f"Submit button {submit_selector} not found in DOM")
                             continue
