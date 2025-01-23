@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 import time
 from pydantic import BaseModel
 from openai import OpenAI
+import traceback
 
 # Load environment variables
 load_dotenv()
@@ -558,76 +559,28 @@ async def root():
 async def process_trading_signal(signal: TradingSignal):
     try:
         async with async_playwright() as p:
-            # Launch browser with optimized settings
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-gpu',
-                    '--disable-dev-shm-usage',
-                    '--disable-setuid-sandbox',
-                    '--no-sandbox',
-                    '--disable-extensions',
-                    '--disable-notifications',
-                    '--disable-geolocation'
-                ]
-            )
-            
-            # Create a new context with specific settings
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 720},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                java_script_enabled=True,
-                bypass_csp=True,
-                ignore_https_errors=True
-            )
-
-            # Add route to block unnecessary resources
-            await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf,otf,eot}", lambda route: route.abort())
-            await context.route("**/{analytics,tracking,advertisement}**", lambda route: route.abort())
-            
-            # Create new page
-            page = await context.new_page()
-            
-            # First login to TradingView
-            await login_to_tradingview(page)
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
             
             try:
+                # First login to TradingView
+                await login_to_tradingview(page)
+                
                 # Get news data
                 news_data = await scrape_news(page, signal.instrument)
                 
-                # Generate summary
-                if len(news_data) > 0 and news_data[0]['content'] != "No content found":
-                    summary_data = await summarize_article(news_data[0]['content'])
-                else:
-                    summary_data = {
-                        "summary": "No article content to summarize",
-                        "tokens_used": 0
-                    }
-                
-                # Analyze sentiment
-                sentiment = await analyze_sentiment(news_data[0]['content'])
-                
-                # Combine all data
-                combined_data = {
-                    "signal": {
-                        "instrument": signal.instrument,
-                        "timestamp": signal.timestamp
-                    },
-                    "news": {
-                        "title": news_data[0]['title'],
-                        "content": news_data[0]['content'],
-                        "summary": summary_data['summary'],
-                        "tokens_used": summary_data['tokens_used'],
-                        "url": f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
-                    },
-                    "sentiment": sentiment,
-                    "timestamp": signal.timestamp
-                }
-                
+                # Return only the news data
                 return {
                     "status": "success",
                     "message": "Signal processed successfully",
-                    "data": combined_data
+                    "data": {
+                        "signal": {
+                            "instrument": signal.instrument,
+                            "timestamp": signal.timestamp
+                        },
+                        "news": news_data[0] if news_data else {"title": "No news found", "content": "No content found"},
+                        "timestamp": signal.timestamp
+                    }
                 }
                 
             except Exception as e:
@@ -644,7 +597,7 @@ async def process_trading_signal(signal: TradingSignal):
     except Exception as e:
         logger.error(f"Error launching browser: {str(e)}")
         return {
-            "status": "error",
+            "status": "error", 
             "message": f"Error launching browser: {str(e)}",
             "data": None
         }
