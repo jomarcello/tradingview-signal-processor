@@ -150,13 +150,33 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 for item in news_items[:3]:  # Only get first 3 articles
                     try:
+                        # Get title before clicking
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        if title:
-                            logger.info("Found article: " + title)
-                            articles.append({
-                                'title': title.strip(),
-                                'content': title.strip()  # Using title as content since that's what we can access
-                            })
+                        if not title:
+                            logger.warning("Could not find title")
+                            continue
+                            
+                        logger.info(f"Opening article: {title}")
+                        
+                        # Click the header to open article
+                        await item.click()
+                        
+                        # Wait for article content
+                        await page.wait_for_selector('.body-bETdSLzM', timeout=10000)
+                        
+                        # Get full article content
+                        content = await page.evaluate('() => document.querySelector(".body-bETdSLzM").innerText')
+                        
+                        logger.info(f"Found article content: {content[:100]}...")
+                        articles.append({
+                            'title': title.strip(),
+                            'content': content.strip()
+                        })
+                        
+                        # Go back to news page
+                        await page.go_back()
+                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
+                            
                     except Exception as e:
                         logger.warning(f"Error processing news item: {str(e)}")
                         continue
