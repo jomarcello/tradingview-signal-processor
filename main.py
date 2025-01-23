@@ -71,6 +71,41 @@ async def login_to_tradingview(page):
                 main_frame = frame
                 break
         
+        # Log all available elements for debugging, including shadow DOM
+        logger.info("Checking available elements in DOM:")
+        elements = await main_frame.evaluate('''() => {
+            function getAllElements(root) {
+                const elements = Array.from(root.querySelectorAll('*'));
+                const shadowElements = [];
+                
+                elements.forEach(el => {
+                    if (el.shadowRoot) {
+                        shadowElements.push(...getAllElements(el.shadowRoot));
+                    }
+                });
+                
+                return [...elements, ...shadowElements].filter(el => 
+                    el.tagName === 'INPUT' || el.tagName === 'BUTTON'
+                ).map(el => ({
+                    tag: el.tagName,
+                    type: el.type,
+                    id: el.id,
+                    name: el.name,
+                    class: el.className,
+                    shadowRoot: !!el.shadowRoot,
+                    hidden: el.hidden,
+                    display: window.getComputedStyle(el).display,
+                    visibility: window.getComputedStyle(el).visibility
+                }));
+            }
+            return getAllElements(document);
+        }''')
+        logger.info(f"Found elements: {json.dumps(elements, indent=2)}")
+        
+        # Wait for any dynamic content to load
+        logger.info("Waiting for dynamic content")
+        await page.wait_for_timeout(2000)
+        
         # Try different selectors for email/password fields
         selectors = [
             ('input[name="username"]', 'input[name="password"]'),
@@ -78,22 +113,11 @@ async def login_to_tradingview(page):
             ('#email-signin__user-name-input', '#email-signin__password-input'),
             ('form input[type="text"]', 'form input[type="password"]'),
             ('[name="username"]', '[name="password"]'),
-            ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]')
+            ('.tv-control-material-textbox__input', '.tv-control-material-textbox__input[type="password"]'),
+            # Add more specific TradingView selectors
+            ('input.tv-control-material-textbox__input[name="username"]', 'input.tv-control-material-textbox__input[name="password"]'),
+            ('input[autocomplete="username"]', 'input[autocomplete="current-password"]')
         ]
-        
-        # Log all available elements for debugging
-        logger.info("Checking available elements in DOM:")
-        elements = await main_frame.evaluate('''() => {
-            const elements = document.querySelectorAll('input, button');
-            return Array.from(elements).map(el => ({
-                tag: el.tagName,
-                type: el.type,
-                id: el.id,
-                name: el.name,
-                class: el.className
-            }));
-        }''')
-        logger.info(f"Found elements: {json.dumps(elements, indent=2)}")
         
         logged_in = False
         for email_selector, password_selector in selectors:
@@ -103,8 +127,31 @@ async def login_to_tradingview(page):
                 # First check if elements exist using proper JavaScript syntax
                 js_email_selector = email_selector.replace("'", "\\'")
                 js_password_selector = password_selector.replace("'", "\\'")
-                email_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_email_selector}')")
-                password_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_password_selector}')")
+                
+                # Check in both regular DOM and shadow DOM
+                email_check = f'''
+                    () => {{
+                        const el = document.querySelector('{js_email_selector}');
+                        if (el) return true;
+                        const shadowEls = Array.from(document.querySelectorAll('*'))
+                            .filter(el => el.shadowRoot)
+                            .map(el => el.shadowRoot.querySelector('{js_email_selector}'));
+                        return shadowEls.some(el => el !== null);
+                    }}
+                '''
+                password_check = f'''
+                    () => {{
+                        const el = document.querySelector('{js_password_selector}');
+                        if (el) return true;
+                        const shadowEls = Array.from(document.querySelectorAll('*'))
+                            .filter(el => el.shadowRoot)
+                            .map(el => el.shadowRoot.querySelector('{js_password_selector}'));
+                        return shadowEls.some(el => el !== null);
+                    }}
+                '''
+                
+                email_exists = await main_frame.evaluate(email_check)
+                password_exists = await main_frame.evaluate(password_check)
                 
                 if not email_exists or not password_exists:
                     logger.warning(f"Elements not found in DOM: email={email_exists}, password={password_exists}")
@@ -135,7 +182,10 @@ async def login_to_tradingview(page):
                     '[data-name="submit"]',
                     'button.tv-button__loader',
                     '.tv-button--primary',
-                    '.tv-button'
+                    '.tv-button',
+                    # Add more specific TradingView button selectors
+                    'button.tv-button--primary[type="submit"]',
+                    '[data-name="submit-button"]'
                 ]
                 
                 for submit_selector in submit_buttons:
@@ -143,7 +193,17 @@ async def login_to_tradingview(page):
                         logger.info(f"Trying to click submit button: {submit_selector}")
                         # First check if button exists using proper JavaScript syntax
                         js_submit_selector = submit_selector.replace("'", "\\'")
-                        button_exists = await main_frame.evaluate(f"() => !!document.querySelector('{js_submit_selector}')")
+                        button_check = f'''
+                            () => {{
+                                const el = document.querySelector('{js_submit_selector}');
+                                if (el) return true;
+                                const shadowEls = Array.from(document.querySelectorAll('*'))
+                                    .filter(el => el.shadowRoot)
+                                    .map(el => el.shadowRoot.querySelector('{js_submit_selector}'));
+                                return shadowEls.some(el => el !== null);
+                            }}
+                        '''
+                        button_exists = await main_frame.evaluate(button_check)
                         if not button_exists:
                             logger.warning(f"Submit button {submit_selector} not found in DOM")
                             continue
