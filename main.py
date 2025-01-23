@@ -63,7 +63,7 @@ async def login_to_tradingview(page):
                 # Try to find the user menu button
                 user_menu = await page.wait_for_selector(
                     'button.tv-header__user-menu-button--anonymous',
-                    timeout=3000,
+                    timeout=5000,
                     state='visible'
                 )
                 
@@ -71,11 +71,22 @@ async def login_to_tradingview(page):
                     logger.info("Found user menu button, clicking it")
                     await user_menu.click()
                     
+                    # Wait for the menu to be visible
+                    logger.info("Waiting for user menu to appear")
+                    await page.wait_for_selector(
+                        '[data-name="header-user-menu-popup"]',
+                        timeout=5000,
+                        state='visible'
+                    )
+                    
+                    # Small delay to ensure menu is fully rendered
+                    await page.wait_for_timeout(1000)
+                    
                     # Wait for the email button and click it
                     logger.info("Looking for email button")
                     email_button = await page.wait_for_selector(
                         'button[name="Email"]',
-                        timeout=3000,
+                        timeout=5000,
                         state='visible'
                     )
                     
@@ -128,6 +139,19 @@ async def login_to_tradingview(page):
                 logger.info("Current page content:")
                 logger.info(await page.content())
                 
+                # If we failed to find the email button, try to log the menu content
+                if "Email" in str(e):
+                    try:
+                        menu_content = await page.evaluate('''() => {
+                            const menu = document.querySelector('[data-name="header-user-menu-popup"]');
+                            return menu ? menu.innerHTML : null;
+                        }''')
+                        if menu_content:
+                            logger.info("Menu content:")
+                            logger.info(menu_content)
+                    except Exception as menu_error:
+                        logger.warning(f"Could not get menu content: {str(menu_error)}")
+                
                 await page.wait_for_timeout(2000)
         
         if retry_count >= 3:
@@ -154,6 +178,127 @@ async def login_to_tradingview(page):
         logger.error(f"Failed to log in to TradingView: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to log in to TradingView: {str(e)}")
 
+async def scrape_news(page, symbol):
+    """Scrape news for a given symbol"""
+    try:
+        logger.info(f"Navigating to https://www.tradingview.com/symbols/{symbol}/news/")
+        await page.goto(f'https://www.tradingview.com/symbols/{symbol}/news/',
+                       wait_until='networkidle',
+                       timeout=10000)
+        
+        logger.info("Waiting for news table")
+        
+        # First check if we're on the right page
+        current_url = page.url
+        logger.info(f"Current URL: {current_url}")
+        
+        # Take a screenshot for debugging
+        logger.info("Taking screenshot of news page")
+        await page.screenshot(path='/tmp/tradingview_news.png', full_page=True)
+        
+        # Wait for any news content with retry
+        news_items = None
+        retry_count = 0
+        
+        while retry_count < 3 and not news_items:
+            try:
+                # Try different selectors for news items
+                for selector in [
+                    'article[data-name="news-headline-card"]',
+                    '.card-DmjQR0Aa',
+                    '[data-name="news-headline-card"]',
+                    '.news-list > *'  # Any child of news-list
+                ]:
+                    try:
+                        logger.info(f"Trying selector: {selector}")
+                        news_items = await page.query_selector_all(selector)
+                        if news_items and len(news_items) > 0:
+                            logger.info(f"Found {len(news_items)} news items with selector: {selector}")
+                            break
+                    except Exception as e:
+                        logger.warning(f"Failed to find news with selector {selector}: {str(e)}")
+                        continue
+                
+                if news_items and len(news_items) > 0:
+                    break
+                    
+                # If no news found, check page content
+                logger.info("Checking page content")
+                page_content = await page.content()
+                logger.info(f"Page title: {await page.title()}")
+                
+                # Look for any news-related elements
+                news_elements = await page.evaluate('''() => {
+                    const elements = [];
+                    document.querySelectorAll('*').forEach(el => {
+                        if (el.id?.toLowerCase().includes('news') || 
+                            el.className?.toLowerCase().includes('news') ||
+                            el.getAttribute('data-name')?.toLowerCase().includes('news')) {
+                            elements.push({
+                                tag: el.tagName,
+                                id: el.id,
+                                class: el.className,
+                                dataName: el.getAttribute('data-name'),
+                                visible: el.offsetParent !== null
+                            });
+                        }
+                    });
+                    return elements;
+                }''')
+                
+                if news_elements:
+                    logger.info(f"Found {len(news_elements)} news-related elements:")
+                    for el in news_elements:
+                        logger.info(f"  {el}")
+                
+                # Take another screenshot
+                logger.info("Taking screenshot after attempt")
+                await page.screenshot(path=f'/tmp/tradingview_news_attempt_{retry_count}.png', full_page=True)
+                
+                retry_count += 1
+                logger.warning(f"Retry {retry_count}: Could not find news items")
+                await page.wait_for_timeout(2000)
+                
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry {retry_count}: Error finding news: {str(e)}")
+                await page.wait_for_timeout(2000)
+        
+        if not news_items or len(news_items) == 0:
+            raise Exception("Could not find any news items")
+            
+        # Process the news items
+        news_data = []
+        for item in news_items[:10]:  # Limit to first 10 items
+            try:
+                # Get the article data
+                article_data = await page.evaluate('''(article) => {
+                    const titleEl = article.querySelector('[data-name="headline-title"]') || 
+                                  article.querySelector('.title-DmjQR0Aa');
+                    const dateEl = article.querySelector('relative-time');
+                    const providerEl = article.querySelector('.provider-TUPxzdRV');
+                    
+                    return {
+                        title: titleEl ? titleEl.textContent.trim() : null,
+                        date: dateEl ? dateEl.getAttribute('event-time') : null,
+                        provider: providerEl ? providerEl.textContent.trim() : null,
+                        html: article.outerHTML
+                    };
+                }''', item)
+                
+                if article_data['title']:
+                    news_data.append(article_data)
+                    logger.info(f"Found article: {article_data['title']}")
+            except Exception as e:
+                logger.warning(f"Error processing news item: {str(e)}")
+                continue
+        
+        return news_data
+            
+    except Exception as e:
+        logger.error(f"Error during news scraping: {str(e)}")
+        raise
+
 async def get_news(pair: str) -> Dict:
     logger.info(f"Starting news scraping for {pair}")
     special_symbols = {
@@ -176,32 +321,14 @@ async def get_news(pair: str) -> Dict:
             # First login to TradingView
             await login_to_tradingview(page)
             
-            # Now navigate to news page
-            url = f"https://www.tradingview.com/symbols/{symbol}/news/"
-            logger.info(f"Navigating to {url}")
-            await page.goto(url)
-            
-            logger.info("Waiting for news table")
-            await page.wait_for_selector('.news-table', timeout=10000)
-            
-            logger.info("Finding first news article")
-            first_news = page.locator('.news-table tr:first-child td.desc a')
-            news_title = await first_news.text_content()
-            news_link = await first_news.get_attribute('href')
-            
-            full_news_url = f"https://www.tradingview.com{news_link}"
-            logger.info(f"Navigating to news article: {full_news_url}")
-            await page.goto(full_news_url)
-            
-            logger.info("Waiting for article content")
-            article = await page.wait_for_selector('article')
-            article_content = await article.text_content()
+            # Now scrape news
+            news_data = await scrape_news(page, symbol)
             
             logger.info("Successfully scraped news")
             return {
-                "title": news_title.strip(),
-                "content": article_content.strip(),
-                "url": full_news_url
+                "title": news_data[0]['title'],
+                "content": news_data[0]['html'],
+                "url": f"https://www.tradingview.com/symbols/{symbol}/news/"
             }
         except Exception as e:
             logger.error(f"Error scraping news: {str(e)}")
@@ -297,41 +424,20 @@ async def process_trading_signal(signal: TradingSignal):
                 # Login to TradingView
                 await login_to_tradingview(page)
                 
-                # Now navigate to news page
-                url = f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
-                logger.info(f"Navigating to {url}")
-                await page.goto(url)
-                
-                logger.info("Waiting for news table")
-                await page.wait_for_selector('.news-table', timeout=10000)
-                
-                logger.info("Finding first news article")
-                first_news = page.locator('.news-table tr:first-child td.desc a')
-                news_title = await first_news.text_content()
-                news_link = await first_news.get_attribute('href')
-                
-                full_news_url = f"https://www.tradingview.com{news_link}"
-                logger.info(f"Navigating to news article: {full_news_url}")
-                await page.goto(full_news_url)
-                
-                logger.info("Waiting for article content")
-                article = await page.wait_for_selector('article')
-                article_content = await article.text_content()
-                
-                logger.info("Successfully scraped news")
-                news = {
-                    "title": news_title.strip(),
-                    "content": article_content.strip(),
-                    "url": full_news_url
-                }
+                # Now scrape news
+                news_data = await scrape_news(page, signal.instrument)
                 
                 # Analyze sentiment
-                sentiment = await analyze_sentiment(news['content'])
+                sentiment = await analyze_sentiment(news_data[0]['html'])
                 
                 # Combine all data
                 combined_data = {
                     "signal": signal.dict(),
-                    "news": news,
+                    "news": {
+                        "title": news_data[0]['title'],
+                        "content": news_data[0]['html'],
+                        "url": f"https://www.tradingview.com/symbols/{signal.instrument}/news/"
+                    },
                     "sentiment": sentiment,
                     "timestamp": signal.timestamp
                 }
