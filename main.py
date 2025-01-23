@@ -68,62 +68,91 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
     logger.info(f"Getting news for {instrument}")
     
     try:
-        browser = await get_browser()
-        context = await browser.new_context(
-            viewport={'width': 1024, 'height': 768},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        )
-        
-        page = await context.new_page()
-        
-        # First login
-        logger.info("Logging in")
-        await page.goto('https://www.tradingview.com/#signin', wait_until='networkidle', timeout=60000)
-        await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"), timeout=60000)
-        await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"), timeout=60000)
-        await page.click('button[type="submit"]', timeout=60000)
-        await page.wait_for_load_state('networkidle', timeout=60000)
-        
-        # Go to news page
-        logger.info("Going to news page")
-        url = f'https://www.tradingview.com/news/?symbol={instrument}'
-        await page.goto(url, timeout=60000)
-        await page.wait_for_load_state('networkidle', timeout=60000)
-        
-        # Wait for news feed
-        logger.info("Waiting for news feed")
-        await page.wait_for_selector('.news-feed article', timeout=60000)
-        
-        # Get news content
-        articles = []
-        news_items = await page.query_selector_all('.news-feed article')
-        
-        for item in news_items:
-            title_el = await item.query_selector('.news-feed__title')
-            content_el = await item.query_selector('.news-feed__content')
+        async with async_playwright() as p:
+            # Install browsers first
+            logger.info("Installing browsers")
+            import subprocess
+            subprocess.run(['playwright', 'install', 'chromium'])
             
-            if title_el and content_el:
-                title = await title_el.text_content()
-                content = await content_el.text_content()
-                articles.append({
-                    'title': title.strip(),
-                    'content': content.strip()
-                })
-        
-        logger.info(f"Found {len(articles)} articles")
-        
-        await context.close()
-        await browser.close()
-        
-        return articles
+            # Launch browser with more conservative options
+            logger.info("Launching browser")
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage'
+                ]
+            )
+            
+            # Create context with minimal options
+            logger.info("Creating context")
+            context = await browser.new_context(
+                viewport={'width': 800, 'height': 600},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            )
+            
+            try:
+                page = await context.new_page()
+                logger.info("Created new page")
+                
+                # First login
+                logger.info("Navigating to login page")
+                await page.goto('https://www.tradingview.com/#signin', wait_until='load', timeout=60000)
+                
+                logger.info("Filling login form")
+                await page.fill('input[name="username"]', os.getenv("TRADINGVIEW_EMAIL"))
+                await page.fill('input[name="password"]', os.getenv("TRADINGVIEW_PASSWORD"))
+                
+                logger.info("Submitting login form")
+                await page.click('button[type="submit"]')
+                await page.wait_for_load_state('load')
+                
+                # Go to news page
+                logger.info("Going to news page")
+                url = f'https://www.tradingview.com/news/?symbol={instrument}'
+                await page.goto(url, wait_until='load')
+                
+                # Wait for news feed with retry
+                logger.info("Waiting for news feed")
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        await page.wait_for_selector('.news-feed article', timeout=20000)
+                        break
+                    except Exception as e:
+                        if attempt == max_retries - 1:
+                            raise
+                        logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
+                        await page.reload()
+                
+                # Get news content
+                articles = []
+                news_items = await page.query_selector_all('.news-feed article')
+                
+                for item in news_items:
+                    title_el = await item.query_selector('.news-feed__title')
+                    content_el = await item.query_selector('.news-feed__content')
+                    
+                    if title_el and content_el:
+                        title = await title_el.text_content()
+                        content = await content_el.text_content()
+                        articles.append({
+                            'title': title.strip(),
+                            'content': content.strip()
+                        })
+                
+                logger.info(f"Found {len(articles)} articles")
+                return articles
+                
+            finally:
+                logger.info("Cleaning up browser resources")
+                await context.close()
+                await browser.close()
         
     except Exception as e:
         logger.error(f"Failed to get news: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
-        if 'context' in locals():
-            await context.close()
-        if 'browser' in locals():
-            await browser.close()
         raise
 
 @app.post("/trading-signal")
