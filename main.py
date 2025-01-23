@@ -358,86 +358,93 @@ async def scrape_news(page, symbol):
                         
                         # First try to get the article body
                         article_content = await page.evaluate('''() => {
-                            // Try different selectors for article content
-                            const selectors = [
-                                'article p',  // Get all paragraphs inside article
-                                '.body-KX2tCBZq p',  // Alternative class
-                                '.content-pIO_GYwT p',  // Another alternative
-                                '.body-pIO_GYwT p',  // Another body class
-                                'article li',  // List items in article
-                                '.body-KX2tCBZq li',  // List items in body
-                                '.body-pIO_GYwT li'  // List items in alternative body
-                            ];
-                            
-                            let textContent = [];
-                            
-                            // Debug logging
-                            console.log('Available selectors on page:');
-                            document.querySelectorAll('*').forEach(el => {
-                                if (el.className) console.log(el.tagName, el.className);
-                            });
-                            
-                            // Try each selector
-                            for (const selector of selectors) {
-                                console.log('Trying selector:', selector);
-                                const elements = document.querySelectorAll(selector);
-                                console.log('Found elements:', elements.length);
+                            try {
+                                // Try different selectors for article content
+                                const selectors = [
+                                    'article p',  // Get all paragraphs inside article
+                                    '.body-KX2tCBZq p',  // Alternative class
+                                    '.content-pIO_GYwT p',  // Another alternative
+                                    '.body-pIO_GYwT p',  // Another body class
+                                    'article li',  // List items in article
+                                    '.body-KX2tCBZq li',  // List items in body
+                                    '.body-pIO_GYwT li'  // List items in alternative body
+                                ];
                                 
-                                if (elements.length > 0) {
-                                    elements.forEach(el => {
-                                        // Skip empty text or social share buttons
-                                        if (el.closest('.timeAndSocialShare-pIO_GYwT')) {
-                                            console.log('Skipping social share element');
-                                            return;
-                                        }
-                                        
-                                        const text = el.textContent.trim();
-                                        console.log('Found text:', text.substring(0, 50) + '...');
-                                        
-                                        if (text && !textContent.includes(text)) {
-                                            textContent.push(text);
-                                        }
-                                    });
-                                }
-                            }
-                            
-                            // Get key points if available
-                            const keyPoints = document.querySelector('.summary-pIO_GYwT');
-                            if (keyPoints) {
-                                console.log('Found key points');
-                                const points = Array.from(keyPoints.querySelectorAll('li'))
-                                    .map(li => li.textContent.trim())
-                                    .filter(text => text);
+                                let textContent = [];
+                                
+                                // Debug logging
+                                console.log('Available selectors on page:');
+                                document.querySelectorAll('*').forEach(el => {
+                                    if (el.className) console.log(el.tagName + ' ' + el.className);
+                                });
+                                
+                                // Try each selector
+                                for (const selector of selectors) {
+                                    console.log('Trying selector: ' + selector);
+                                    const elements = document.querySelectorAll(selector);
+                                    console.log('Found elements: ' + elements.length);
                                     
-                                if (points.length > 0) {
-                                    console.log('Adding key points:', points);
-                                    textContent.unshift("Key points:", ...points);
-                                }
-                            }
-                            
-                            // If no content found, try getting all text from the article
-                            if (textContent.length === 0) {
-                                console.log('No content found, trying full article text');
-                                const article = document.querySelector('article');
-                                if (article) {
-                                    const text = article.textContent.trim();
-                                    if (text) {
-                                        console.log('Found article text:', text.substring(0, 50) + '...');
-                                        textContent.push(text);
+                                    if (elements.length > 0) {
+                                        elements.forEach(el => {
+                                            // Skip empty text or social share buttons
+                                            if (el.closest('.timeAndSocialShare-pIO_GYwT')) {
+                                                console.log('Skipping social share element');
+                                                return;
+                                            }
+                                            
+                                            const text = el.textContent.trim();
+                                            if (text) {
+                                                console.log('Found text: ' + text.substring(0, 50));
+                                                
+                                                if (!textContent.includes(text)) {
+                                                    textContent.push(text);
+                                                }
+                                            }
+                                        });
                                     }
                                 }
+                                
+                                // Get key points if available
+                                const keyPoints = document.querySelector('.summary-pIO_GYwT');
+                                if (keyPoints) {
+                                    console.log('Found key points');
+                                    const points = Array.from(keyPoints.querySelectorAll('li'))
+                                        .map(li => li.textContent.trim())
+                                        .filter(text => text);
+                                        
+                                    if (points.length > 0) {
+                                        console.log('Adding key points: ' + points.join(', '));
+                                        textContent.unshift('Key points:', ...points);
+                                    }
+                                }
+                                
+                                // If no content found, try getting all text from the article
+                                if (textContent.length === 0) {
+                                    console.log('No content found, trying full article text');
+                                    const article = document.querySelector('article');
+                                    if (article) {
+                                        const text = article.textContent.trim();
+                                        if (text) {
+                                            console.log('Found article text: ' + text.substring(0, 50));
+                                            textContent.push(text);
+                                        }
+                                    }
+                                }
+                                
+                                console.log('Final text content length: ' + textContent.length);
+                                return textContent.join('\\n\\n');
+                            } catch (err) {
+                                console.error('Error in JavaScript:', err);
+                                return 'Error in JavaScript: ' + err.message;
                             }
-                            
-                            console.log('Final text content length:', textContent.length);
-                            return textContent.join('\n\n');
                         }''')
                         
-                        if article_content and article_content.trim():
+                        if article_content and article_content.strip() and not article_content.startswith('Error in JavaScript:'):
                             article_data['content'] = article_content
                             logger.info("Successfully retrieved article text content")
                             logger.info(f"Content preview: {article_content[:200]}...")
                         else:
-                            logger.warning("Could not find article content")
+                            logger.warning(f"Could not find article content: {article_content}")
                             article_data['content'] = "No content found"
                             
                     except Exception as e:
