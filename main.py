@@ -326,17 +326,36 @@ async def scrape_news(page, symbol):
                         return null;
                     }
                     
+                    // Get article link
+                    const linkEl = container.closest('a');
+                    const articleUrl = linkEl ? linkEl.href : null;
+                    
                     return {
                         title: title,
                         date: dateEl ? dateEl.getAttribute('event-time') : null,
                         provider: providerEl ? providerEl.textContent.trim() : null,
+                        url: articleUrl,
                         html: container.outerHTML
                     };
                 }''', item)
                 
-                if article_data and article_data['title']:
+                if article_data and article_data['title'] and article_data['url']:
+                    # Navigate to the full article
+                    logger.info(f"Navigating to article: {article_data['url']}")
+                    await page.goto(article_data['url'], wait_until='domcontentloaded')
+                    
+                    # Wait for article content
+                    article_content = await page.wait_for_selector('.content-HY0D0owe, .content-DmjQR0Aa', timeout=5000)
+                    if article_content:
+                        article_data['html'] = await article_content.evaluate('el => el.outerHTML')
+                        logger.info("Successfully retrieved full article content")
+                    
                     news_data.append(article_data)
                     logger.info(f"Found article: {article_data['title']}")
+                    
+                    # Go back to the news list
+                    await page.goto(f'https://www.tradingview.com/symbols/{symbol}/news/',
+                                  wait_until='domcontentloaded')
             except Exception as e:
                 logger.warning(f"Error processing news item: {str(e)}")
                 continue
