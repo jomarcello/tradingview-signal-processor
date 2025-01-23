@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException
 from playwright.async_api import async_playwright
 import aiohttp
 import asyncio
-from typing import Dict, List
+from datetime import datetime
+from typing import Dict, List, Optional
 import logging
 import json
 import os
