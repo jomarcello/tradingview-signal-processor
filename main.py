@@ -53,268 +53,88 @@ async def login_to_tradingview(page):
         logger.info("Taking screenshot of page")
         await page.screenshot(path='/tmp/tradingview_page.png', full_page=True)
         
-        # Look for the sign in button in the header with retry
-        logger.info("Looking for header sign in button")
-        header_signin = None
+        # Look for the user menu button
+        logger.info("Looking for user menu button")
+        user_menu = None
         retry_count = 0
         
-        while retry_count < 3 and not header_signin:
+        while retry_count < 3 and not user_menu:
             try:
-                # Try different selectors for the header button
-                for selector in [
-                    'button[data-name="header-signin-button"]',
-                    '[data-name="header-signin-button"]',
-                    'button.tv-header__user-menu-button--signin',
-                    '.tv-header__user-menu-button--signin',
-                    '.js-header-sign-in',
-                    'a[href="/sign-in/"]',
-                    'button:has-text("Sign In")',
-                    'a:has-text("Sign In")'
-                ]:
-                    try:
-                        # First check if element exists and is a sign in button
-                        exists = await page.evaluate(f'''(selector) => {{
-                            const el = document.querySelector(selector);
-                            if (el) {{
-                                const text = el.textContent.toLowerCase();
-                                const isSignIn = text.includes('sign in') || 
-                                               text.includes('login') ||
-                                               el.href?.includes('sign-in');
-                                               
-                                console.log('Found element:', {{
-                                    selector,
-                                    html: el.outerHTML,
-                                    text: text,
-                                    isSignIn,
-                                    visible: el.offsetParent !== null
-                                }});
-                                
-                                return isSignIn;
-                            }}
-                            return false;
-                        }}''', selector)
-                        
-                        if exists:
-                            logger.info(f"Found sign in element with selector: {selector}")
-                            header_signin = await page.wait_for_selector(selector, timeout=3000, state='visible')
-                            if header_signin:
-                                logger.info(f"Found visible sign in button with selector: {selector}")
-                                break
-                    except Exception as e:
-                        logger.warning(f"Failed to find element with selector {selector}: {str(e)}")
-                        continue
+                # Try to find the user menu button
+                user_menu = await page.wait_for_selector(
+                    'button.tv-header__user-menu-button--anonymous',
+                    timeout=3000,
+                    state='visible'
+                )
                 
-                if header_signin:
-                    break
+                if user_menu:
+                    logger.info("Found user menu button, clicking it")
+                    await user_menu.click()
                     
-                # If no element found, check page content
-                logger.info("Checking page content")
-                page_content = await page.content()
-                logger.info(f"Page title: {await page.title()}")
-                logger.info(f"Page URL: {page.url}")
-                
-                # Search for any sign in related elements
-                sign_in_elements = await page.evaluate('''() => {
-                    const elements = [];
-                    document.querySelectorAll('a, button').forEach(el => {
-                        const text = el.textContent.toLowerCase();
-                        if (text.includes('sign in') || text.includes('login')) {
-                            elements.push({
-                                tag: el.tagName,
-                                text: text,
-                                html: el.outerHTML,
-                                visible: el.offsetParent !== null
-                            });
-                        }
-                    });
-                    return elements;
-                }''')
-                
-                if sign_in_elements:
-                    logger.info(f"Found {len(sign_in_elements)} potential sign in elements:")
-                    for el in sign_in_elements:
-                        logger.info(f"  {el}")
-                
-                # Take another screenshot
-                logger.info("Taking screenshot after attempt")
-                await page.screenshot(path=f'/tmp/tradingview_page_attempt_{retry_count}.png', full_page=True)
-                
-                retry_count += 1
-                logger.warning(f"Retry {retry_count}: Could not find header sign in button")
-                await page.wait_for_timeout(2000)
-                
+                    # Wait for the email button and click it
+                    logger.info("Looking for email button")
+                    email_button = await page.wait_for_selector(
+                        'button[name="Email"]',
+                        timeout=3000,
+                        state='visible'
+                    )
+                    
+                    if email_button:
+                        logger.info("Found email button, clicking it")
+                        await email_button.click()
+                        
+                        # Now wait for the email input field
+                        logger.info("Waiting for email input")
+                        email_input = await page.wait_for_selector(
+                            'input[name="username"]',
+                            timeout=5000,
+                            state='visible'
+                        )
+                        
+                        if email_input:
+                            logger.info("Found email input, filling credentials")
+                            await email_input.fill(os.getenv('TRADINGVIEW_EMAIL'))
+                            
+                            # Find and fill password
+                            password_input = await page.wait_for_selector(
+                                'input[name="password"]',
+                                timeout=5000,
+                                state='visible'
+                            )
+                            await password_input.fill(os.getenv('TRADINGVIEW_PASSWORD'))
+                            
+                            # Click the sign in button
+                            sign_in_button = await page.wait_for_selector(
+                                'button[type="submit"]',
+                                timeout=5000,
+                                state='visible'
+                            )
+                            await sign_in_button.click()
+                            
+                            # Wait for navigation
+                            logger.info("Waiting for login to complete")
+                            await page.wait_for_load_state('networkidle')
+                            break
+            
             except Exception as e:
                 retry_count += 1
-                logger.warning(f"Retry {retry_count}: Error finding header sign in button: {str(e)}")
+                logger.warning(f"Retry {retry_count}: Error during login flow: {str(e)}")
+                
+                # Take a screenshot of the current state
+                logger.info("Taking screenshot after failed attempt")
+                await page.screenshot(path=f'/tmp/tradingview_login_attempt_{retry_count}.png', full_page=True)
+                
+                # Log the page content for debugging
+                logger.info("Current page content:")
+                logger.info(await page.content())
+                
                 await page.wait_for_timeout(2000)
         
-        if header_signin:
-            logger.info("Clicking header sign in button")
-            await header_signin.click()
+        if retry_count >= 3:
+            raise Exception("Failed to complete login flow after 3 retries")
             
-            # Wait for the modal with retry
-            logger.info("Waiting for sign in modal")
-            modal = None
-            modal_retry = 0
-            
-            while modal_retry < 3 and not modal:
-                try:
-                    for modal_selector in [
-                        '[data-dialog-name="sign-in-dialog"]',
-                        '.tv-dialog--signin',
-                        'form[class*="SignInForm"]',
-                        '.js-dialog__signin-form'
-                    ]:
-                        try:
-                            modal = await page.wait_for_selector(modal_selector, timeout=3000)
-                            if modal:
-                                logger.info(f"Found sign in modal with selector: {modal_selector}")
-                                break
-                        except:
-                            continue
-                            
-                    if modal:
-                        break
-                        
-                except Exception as e:
-                    modal_retry += 1
-                    logger.warning(f"Retry {modal_retry}: Error finding sign in modal: {str(e)}")
-                    await page.wait_for_timeout(1000)
-            
-            if not modal:
-                # If modal not found, try direct URL
-                logger.info("Modal not found, trying direct sign in URL")
-                await page.goto('https://www.tradingview.com/accounts/signin/', 
-                              wait_until='networkidle',
-                              timeout=10000)
-        else:
-            # If header button not found, try direct URL
-            logger.info("Header button not found, trying direct sign in URL")
-            await page.goto('https://www.tradingview.com/accounts/signin/', 
-                          wait_until='networkidle',
-                          timeout=10000)
+        logger.info("Login flow completed")
         
-        # Try to fill the form using JavaScript with retry
-        logger.info("Attempting to fill form using JavaScript")
-        fill_result = await page.evaluate(f'''() => {{
-            function sleep(ms) {{
-                return new Promise(resolve => setTimeout(resolve, ms));
-            }}
-            
-            async function findElements(maxAttempts = 5) {{
-                for (let attempt = 0; attempt < maxAttempts; attempt++) {{
-                    // Try different strategies to find elements
-                    const selectors = {{
-                        email: [
-                            'input[name="username"]',
-                            'input[type="email"]',
-                            'input[data-purpose="username"]',
-                            'input[data-name="username"]',
-                            'form input[type="text"]'
-                        ],
-                        password: [
-                            'input[name="password"]',
-                            'input[type="password"]',
-                            'input[data-purpose="password"]',
-                            'input[data-name="password"]'
-                        ],
-                        submit: [
-                            'button[type="submit"]',
-                            'button.tv-button--primary',
-                            'button[data-name*="sign-in"]',
-                            'button.submitButton',
-                            'button.tv-button__loader'
-                        ]
-                    }};
-                    
-                    let emailInput, passwordInput, submitButton;
-                    
-                    // Try each selector
-                    for (const emailSelector of selectors.email) {{
-                        emailInput = document.querySelector(emailSelector);
-                        if (emailInput) {{
-                            console.log('Found email input:', emailSelector);
-                            break;
-                        }}
-                    }}
-                    
-                    for (const passwordSelector of selectors.password) {{
-                        passwordInput = document.querySelector(passwordSelector);
-                        if (passwordInput) {{
-                            console.log('Found password input:', passwordSelector);
-                            break;
-                        }}
-                    }}
-                    
-                    for (const submitSelector of selectors.submit) {{
-                        submitButton = document.querySelector(submitSelector);
-                        if (submitButton) {{
-                            // Extra check: only use button if it contains "sign in" text
-                            if (submitButton.textContent.toLowerCase().includes('sign in') ||
-                                submitButton.textContent.toLowerCase().includes('login')) {{
-                                console.log('Found submit button:', submitSelector);
-                                break;
-                            }}
-                        }}
-                    }}
-                    
-                    // Log what we found
-                    console.log('Attempt', attempt + 1, 'found:', {{
-                        email: emailInput ? emailInput.outerHTML : null,
-                        password: passwordInput ? passwordInput.outerHTML : null,
-                        submit: submitButton ? submitButton.outerHTML : null
-                    }});
-                    
-                    if (emailInput && passwordInput && submitButton) {{
-                        return {{ emailInput, passwordInput, submitButton }};
-                    }}
-                    
-                    // Wait before next attempt
-                    await sleep(1000);
-                }}
-                
-                return null;
-            }}
-            
-            return findElements().then(elements => {{
-                if (!elements) {{
-                    return {{
-                        success: false,
-                        error: 'Could not find elements after multiple attempts'
-                    }};
-                }}
-                
-                const {{ emailInput, passwordInput, submitButton }} = elements;
-                
-                // Fill in the form
-                emailInput.value = '{os.getenv("TRADINGVIEW_EMAIL")}';
-                emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                emailInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                
-                passwordInput.value = '{os.getenv("TRADINGVIEW_PASSWORD")}';
-                passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                passwordInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                
-                // Small delay before clicking
-                return sleep(500).then(() => {{
-                    submitButton.click();
-                    return {{ 
-                        success: true,
-                        elements: {{
-                            email: emailInput.outerHTML,
-                            password: passwordInput.outerHTML,
-                            submit: submitButton.outerHTML
-                        }}
-                    }};
-                }});
-            }});
-        }}''')
-        
-        logger.info(f"Form fill result: {fill_result}")
-        
-        if not fill_result.get('success'):
-            raise Exception(f"Could not find form elements: {fill_result.get('error')}")
-            
         # Wait for login to complete with retry
         logger.info("Waiting for login to complete")
         retry_count = 0
