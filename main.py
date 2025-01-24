@@ -97,20 +97,24 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 # Wait for initial load
                 await page.wait_for_timeout(2000)
                 
-                # Scroll down multiple times to load more content
-                for _ in range(3):
-                    await page.evaluate('window.scrollBy(0, window.innerHeight)')
-                    await page.wait_for_timeout(1000)
-                logger.info("Scrolled down to load more content")
-                
-                # Wait for specific elements
-                try:
-                    await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
-                    logger.info("Found news title elements")
-                except Exception as e:
-                    logger.warning(f"Could not find news titles: {str(e)}")
+                # Scroll multiple times to load more articles
+                scroll_attempts = 5  # Increase number of scroll attempts
+                for i in range(scroll_attempts):
+                    logger.info(f"Scroll attempt {i+1}/{scroll_attempts}")
                     
-                # Take a screenshot for debugging
+                    # Scroll to bottom
+                    await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    await asyncio.sleep(1)  # Wait for content to load
+                    
+                    # Get current number of articles
+                    current_items = await page.query_selector_all('.title-HY0D0owe')
+                    logger.info(f"Found {len(current_items)} articles after scroll {i+1}")
+                    
+                    # Check if we've loaded enough
+                    if len(current_items) >= 50:  # Increase target number
+                        logger.info("Found enough articles, stopping scroll")
+                        break
+                
                 await page.screenshot(path="/tmp/tradingview.png")
                 logger.info("Screenshot saved")
                 
