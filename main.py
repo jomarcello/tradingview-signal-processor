@@ -348,9 +348,12 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         
         # Send to n8n webhook
         try:
+            logger.info(f"Sending data to webhook: {N8N_WEBHOOK_URL}")
             response = requests.post(N8N_WEBHOOK_URL, json=webhook_data)
+            logger.info(f"Webhook response status: {response.status_code}")
+            logger.info(f"Webhook response content: {response.text}")
             response.raise_for_status()  # Raise an exception for bad status codes
-            logger.info(f"Successfully sent data to n8n webhook. Status code: {response.status_code}")
+            logger.info(f"Successfully sent data to n8n webhook")
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to send data to n8n webhook: {str(e)}")
             # We still return success to the client, but log the webhook error
