@@ -127,7 +127,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 for item in news_items:
                     title = await item.get_attribute('data-overflow-tooltip-text')
                     all_titles.append(title)
-                logger.info(f"All titles found: {all_titles}")
+                logger.info(f"All titles found on page: {all_titles}")
                 
                 # First find all the wanted articles
                 found_items = []
@@ -136,16 +136,19 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                     "Euro Appreciates, ECB Awaited",
                     "Euro Extends Gains After Eurozone PMI Data — Market Talk"
                 ]
-                logger.info(f"Looking for these titles: {wanted_titles}")
+                logger.info(f"Looking for these specific titles: {wanted_titles}")
+                
                 for item in news_items:
                     title = await item.get_attribute('data-overflow-tooltip-text')
                     if title in wanted_titles:
                         found_items.append((title, item))
                         logger.info(f"Found wanted article: {title}")
+                    else:
+                        logger.info(f"Skipping unwanted article: {title}")
                 
                 # Sort found items according to wanted_titles order
                 found_items.sort(key=lambda x: wanted_titles.index(x[0]))
-                logger.info(f"Found {len(found_items)} wanted articles in correct order")
+                logger.info(f"Found {len(found_items)} wanted articles in correct order: {[title for title, _ in found_items]}")
                 
                 # Create a page for articles
                 article_page = await browser.new_page()
@@ -154,7 +157,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                     articles = []
                     for title, item in found_items:
                         try:
-                            logger.info(f"Processing article: {title}")
+                            logger.info(f"Starting to process article: {title}")
                             
                             # Find the parent <a> tag and get its properties
                             parent_info = await item.evaluate('''element => {
