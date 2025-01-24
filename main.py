@@ -94,11 +94,16 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 logger.info(f"Navigated to URL: {url}")
                 logger.info(f"Response status: {response.status}")
                 
-                # Log response headers
-                headers = await response.all_headers()
-                logger.info(f"Response headers: {headers}")
+                # Wait for initial load
+                await page.wait_for_timeout(2000)
                 
-                # Wait for specific elements instead of networkidle
+                # Scroll down multiple times to load more content
+                for _ in range(3):
+                    await page.evaluate('window.scrollBy(0, window.innerHeight)')
+                    await page.wait_for_timeout(1000)
+                logger.info("Scrolled down to load more content")
+                
+                # Wait for specific elements
                 try:
                     await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
                     logger.info("Found news title elements")
