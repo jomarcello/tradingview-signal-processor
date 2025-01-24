@@ -145,7 +145,32 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Get news articles with content
                 articles = []
-                news_items = await page.query_selector_all('.title-HY0D0owe')
+                
+                # Log the current page content
+                page_content = await page.content()
+                logger.info(f"Page content before searching: {page_content[:1000]}...")
+                
+                # Try different selectors for news items
+                news_items = []
+                selectors = [
+                    '.title-HY0D0owe',
+                    '[data-name="news-headline-title"]',
+                    '.title-DmjQR0Aa'
+                ]
+                
+                for selector in selectors:
+                    logger.info(f"Trying to find news items with selector: {selector}")
+                    items = await page.query_selector_all(selector)
+                    if items:
+                        logger.info(f"Found {len(items)} items with selector {selector}")
+                        news_items = items
+                        break
+                    else:
+                        logger.info(f"No items found with selector {selector}")
+                
+                if not news_items:
+                    raise Exception("Could not find any news items")
+                
                 logger.info(f"Found {len(news_items)} news items")
                 
                 # Keep track of which items we've processed
@@ -159,18 +184,32 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         
                         # Get title from the element
                         title = await item.get_attribute('data-overflow-tooltip-text')
+                        logger.info(f"Got title attribute: {title}")
+                        
                         if not title:
                             logger.warning("Could not find title")
                             continue
                             
-                        # Find the parent <a> tag
-                        parent = await item.evaluate('element => element.closest("a")')
-                        if not parent or 'href' not in parent:
+                        # Find the parent <a> tag and get its properties
+                        parent_info = await item.evaluate('''element => {
+                            const parent = element.closest("a");
+                            if (!parent) return null;
+                            return {
+                                href: parent.getAttribute("href"),
+                                html: parent.outerHTML
+                            };
+                        }''')
+                        logger.info(f"Parent info: {parent_info}")
+                        
+                        if not parent_info:
                             logger.warning("Could not find parent link")
                             continue
                             
-                        href = parent['href']
-                        
+                        href = parent_info['href']
+                        if not href:
+                            logger.warning("Could not find href")
+                            continue
+                            
                         # Skip Mace News articles
                         if 'macenews:' in href:
                             logger.info(f"Skipping Mace News article: {title}")
