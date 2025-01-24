@@ -154,45 +154,51 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First find all the wanted articles
                 found_items = []
-                wanted_urls = [
-                    "forexlive:",  # ForexLive artikelen
-                    "macenews:",   # MacroEconomic News artikelen
-                    "dowjones:"    # Dow Jones artikelen
+                wanted_providers = [
+                    "forexlive",          # Forexlive
+                    "tradingeconomics",    # Trading Economics
+                    "dowjones",           # Dow Jones Newswires
+                    "reuters"             # Reuters
                 ]
-                logger.info(f"Looking for articles with these URL patterns: {wanted_urls}")
+                logger.info(f"Looking for articles from these providers: {wanted_providers}")
                 
                 for item in news_items:
                     try:
-                        # Get the href from the parent link
+                        # Get the href and provider from the parent link
                         parent_info = await item.evaluate('''element => {
                             const parent = element.closest("a");
                             if (!parent) return null;
+                            
+                            // Get the provider element
+                            const providerElement = element.closest('article').querySelector('.provider-HY0D0owe span');
+                            const provider = providerElement ? providerElement.textContent.toLowerCase() : '';
+                            
                             return {
                                 href: parent.getAttribute("href"),
+                                provider: provider,
                                 html: parent.outerHTML
                             };
                         }''')
                         
-                        if not parent_info or 'href' not in parent_info:
+                        if not parent_info or 'provider' not in parent_info:
                             continue
                             
-                        href = parent_info['href']
-                        if not href:
-                            continue
-                            
-                        # Check if this is one of the URL patterns we want
-                        if any(pattern in href for pattern in wanted_urls):
+                        provider = parent_info['provider'].lower()
+                        logger.info(f"Found article from provider: {provider}")
+                        
+                        # Check if this is one of the providers we want
+                        if any(wanted_provider in provider for wanted_provider in wanted_providers):
                             title = await item.get_attribute('data-overflow-tooltip-text')
-                            logger.info(f"Found article with matching URL pattern: {href} - Title: {title}")
+                            logger.info(f"Found article from wanted provider {provider}: {title}")
                             found_items.append((title, item))
                         else:
-                            logger.info(f"Skipping article with non-matching URL: {href}")
+                            logger.info(f"Skipping article from unwanted provider: {provider}")
                             
                     except Exception as e:
-                        logger.warning(f"Error checking article URL: {str(e)}")
+                        logger.warning(f"Error checking article provider: {str(e)}")
                         continue
                 
-                logger.info(f"Found {len(found_items)} articles with matching URL patterns")
+                logger.info(f"Found {len(found_items)} articles from wanted providers")
                 
                 # Create a page for articles
                 article_page = await browser.new_page()
