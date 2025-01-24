@@ -114,7 +114,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 await page.screenshot(path="/tmp/tradingview.png")
                 logger.info("Screenshot saved")
                 
-                # Get news items
+                # Get news items after scrolling
                 news_items = await page.query_selector_all('.title-HY0D0owe')
                 if not news_items:
                     logger.warning("No news items found with primary selector, trying alternatives...")
@@ -129,37 +129,29 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                     all_titles.append(title)
                 logger.info(f"All titles found: {all_titles}")
                 
-                # Keep track of which items we've processed
-                processed = 0
-                
-                articles = []
+                # First find all the wanted articles
+                found_items = []
                 wanted_titles = [
                     "EURUSD Technical Analysis – Easing in tariffs risk weakens the USD",
                     "Euro Appreciates, ECB Awaited",
                     "Euro Extends Gains After Eurozone PMI Data — Market Talk"
                 ]
                 logger.info(f"Looking for these titles: {wanted_titles}")
-                
-                while len(articles) < 3 and processed < len(news_items):
-                    try:
-                        # Get the element and its parent link
-                        item = news_items[processed]
-                        processed += 1
-                        
-                        # Get title from the element
-                        title = await item.get_attribute('data-overflow-tooltip-text')
-                        logger.info(f"Processing title: {title}")
-                        
-                        if not title:
-                            logger.warning("Could not find title")
-                            continue
-                            
-                        # Check if this is one of the titles we want
-                        if title not in wanted_titles:
-                            logger.info(f"Skipping unwanted article: {title}")
-                            continue
-                            
+                for item in news_items:
+                    title = await item.get_attribute('data-overflow-tooltip-text')
+                    if title in wanted_titles:
+                        found_items.append((title, item))
                         logger.info(f"Found wanted article: {title}")
+                
+                # Sort found items according to wanted_titles order
+                found_items.sort(key=lambda x: wanted_titles.index(x[0]))
+                logger.info(f"Found {len(found_items)} wanted articles in correct order")
+                
+                # Process found items in order
+                articles = []
+                for title, item in found_items:
+                    try:
+                        logger.info(f"Processing article: {title}")
                         
                         # Find the parent <a> tag and get its properties
                         parent_info = await item.evaluate('''element => {
@@ -172,13 +164,13 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         }''')
                         logger.info(f"Parent info: {parent_info}")
                         
-                        if not parent_info:
-                            logger.warning("Could not find parent link")
+                        if not parent_info or 'href' not in parent_info:
+                            logger.warning("Could not find href")
                             continue
                             
                         href = parent_info['href']
                         if not href:
-                            logger.warning("Could not find href")
+                            logger.warning("Empty href")
                             continue
                             
                         # Skip Mace News articles
@@ -186,64 +178,54 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             logger.info(f"Skipping Mace News article: {title}")
                             continue
                             
+                        # Open article in new page
                         logger.info(f"Opening article: {title}")
+                        article_url = f"https://www.tradingview.com{href}"
+                        logger.info(f"Navigating to: {article_url}")
                         
-                        # Navigate to article
-                        full_url = f"https://www.tradingview.com{href}"
-                        logger.info(f"Navigating to: {full_url}")
-                        await page.goto(full_url, wait_until='load', timeout=30000)
-                        
+                        article_page = await browser.new_page()
                         try:
-                            # Wait for article content to load
+                            await article_page.goto(article_url, wait_until='domcontentloaded')
                             logger.info("Waiting for article content")
                             
-                            # Try different selectors for the content
+                            # Log the page HTML for debugging
+                            page_html = await article_page.content()
+                            logger.info(f"Page HTML: {page_html[:500]}...")
+                            
+                            # Try different selectors for the article content
                             content = None
                             selectors = [
-                                '.body-KX2tCBZq',  # New main selector
-                                '.body-pIO_GYwT',  # Alternative class
-                                '.content-pIO_GYwT',  # Alternative class
-                                'div[class*="body-"] p'  # Fallback: any div with class containing "body-" and its paragraphs
+                                '.body-KX2tCBZq',
+                                '.body-pIO_GYwT',
+                                '.content-pIO_GYwT'
                             ]
-                            
-                            # Log the page content for debugging
-                            page_content = await page.content()
-                            logger.info(f"Page HTML: {page_content[:500]}...")
                             
                             for selector in selectors:
                                 try:
                                     logger.info(f"Trying selector: {selector}")
-                                    await page.wait_for_selector(selector, timeout=5000)
-                                    content = await page.evaluate(f'() => document.querySelector("{selector}").innerText')
-                                    if content:
-                                        logger.info(f"Found content with selector {selector}: {content[:100]}...")
-                                    else:
-                                        logger.info(f"No content found with selector {selector}")
+                                    element = await article_page.query_selector(selector)
+                                    if element:
+                                        text = await element.text_content()
+                                        logger.info(f"Found content with selector {selector}: {text[:100]}...")
+                                        if text and len(text.strip()) > 0:
+                                            content = text
+                                            break
                                 except Exception as e:
                                     logger.warning(f"Error with selector {selector}: {str(e)}")
-                                    continue
                             
-                            if content and len(content.strip()) > 0:
+                            if content:
                                 logger.info(f"Found article content: {content[:100]}...")
                                 articles.append({
-                                    'title': title.strip(),
-                                    'content': content.strip()
+                                    'title': title,
+                                    'content': content
                                 })
-                            else:
-                                logger.info("Article has no content, skipping")
-                        except Exception as e:
-                            logger.warning(f"Could not get content, skipping: {str(e)}")
-                            continue
-                        
-                        # Go back to news page
-                        news_url = f'https://www.tradingview.com/symbols/{instrument}/news/'
-                        logger.info(f"Going back to: {news_url}")
-                        await page.goto(news_url, wait_until='load', timeout=30000)
-                        await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
                             
-                    except Exception as e:
-                        logger.warning(f"Error processing news item: {str(e)}")
-                        continue
+                        except Exception as e:
+                            logger.warning(f"Error processing article: {str(e)}")
+                            continue
+                            
+                        finally:
+                            await article_page.close()
                 
                 if not articles:
                     raise Exception("No articles with content found")
