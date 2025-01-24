@@ -153,18 +153,24 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 while len(articles) < 3 and processed < len(news_items):
                     try:
+                        # Get the element and its parent link
                         item = news_items[processed]
                         processed += 1
                         
-                        # Get title and parent link
+                        # Get title from the element
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        parent = await item.evaluate('element => element.closest("a")')
-                        href = await parent.get_attribute('href')
-                        
-                        if not title or not href:
-                            logger.warning("Could not find title or href")
+                        if not title:
+                            logger.warning("Could not find title")
                             continue
                             
+                        # Find the parent <a> tag
+                        parent = await item.evaluate('element => element.closest("a")')
+                        if not parent or 'href' not in parent:
+                            logger.warning("Could not find parent link")
+                            continue
+                            
+                        href = parent['href']
+                        
                         # Skip Mace News articles
                         if 'macenews:' in href:
                             logger.info(f"Skipping Mace News article: {title}")
@@ -190,13 +196,21 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                                 'div[class*="body-"] p'  # Fallback: any div with class containing "body-" and its paragraphs
                             ]
                             
+                            # Log the page content for debugging
+                            page_content = await page.content()
+                            logger.info(f"Page HTML: {page_content[:500]}...")
+                            
                             for selector in selectors:
                                 try:
+                                    logger.info(f"Trying selector: {selector}")
                                     await page.wait_for_selector(selector, timeout=5000)
                                     content = await page.evaluate(f'() => document.querySelector("{selector}").innerText')
-                                    if content and len(content.strip()) > 0:
-                                        break
-                                except Exception:
+                                    if content:
+                                        logger.info(f"Found content with selector {selector}: {content[:100]}...")
+                                    else:
+                                        logger.info(f"No content found with selector {selector}")
+                                except Exception as e:
+                                    logger.warning(f"Error with selector {selector}: {str(e)}")
                                     continue
                             
                             if content and len(content.strip()) > 0:
