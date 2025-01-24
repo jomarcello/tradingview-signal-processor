@@ -169,9 +169,16 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             const parent = element.closest("a");
                             if (!parent) return null;
                             
-                            // Get the provider element
-                            const providerElement = element.closest('article').querySelector('.provider-HY0D0owe span');
+                            // Get the provider element and log its details
+                            const article = element.closest('article');
+                            const providerElement = article ? article.querySelector('.provider-HY0D0owe span') : null;
+                            const providerHtml = providerElement ? providerElement.outerHTML : 'not found';
                             const provider = providerElement ? providerElement.textContent.toLowerCase() : '';
+                            
+                            // Log article structure
+                            console.log('Article HTML:', article ? article.outerHTML : 'no article found');
+                            console.log('Provider element:', providerHtml);
+                            console.log('Provider text:', provider);
                             
                             return {
                                 href: parent.getAttribute("href"),
@@ -181,6 +188,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         }''')
                         
                         if not parent_info or 'provider' not in parent_info:
+                            logger.warning("Could not find provider info in article")
                             continue
                             
                         provider = parent_info['provider'].lower()
