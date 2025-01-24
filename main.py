@@ -69,21 +69,37 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
     
     try:
         async with async_playwright() as p:
-            # Launch browser in headful mode with screenshots enabled
-            browser = await p.chromium.launch(headless=False)
-            logger.info("Browser launched successfully in headful mode")
+            # Launch browser with debugging options
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
+            logger.info("Browser launched successfully with debugging options")
             
-            # Create a new page
-            page = await browser.new_page()
+            # Create a new page with viewport
+            page = await browser.new_page(
+                viewport={'width': 1920, 'height': 1080}
+            )
+            
+            # Set extra HTTP headers
+            await page.set_extra_http_headers({
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9'
+            })
             
             # Navigate to TradingView news page for the instrument
             url = f"https://www.tradingview.com/symbols/{instrument}/news/"
-            await page.goto(url)
+            response = await page.goto(url)
             logger.info(f"Navigated to URL: {url}")
+            logger.info(f"Response status: {response.status}")
             
-            # Take a screenshot
+            # Log response headers
+            headers = await response.all_headers()
+            logger.info(f"Response headers: {headers}")
+            
+            # Take a screenshot even in headless mode
             await page.screenshot(path="/tmp/tradingview.png")
-            logger.info("Screenshot saved to /tmp/tradingview.png")
+            logger.info("Screenshot saved")
             
             # Wait for the page to load
             await page.wait_for_load_state('networkidle')
