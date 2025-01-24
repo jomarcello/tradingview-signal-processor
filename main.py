@@ -216,6 +216,9 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                                 found_items.append((title, item))
                         else:
                             logger.info(f"Skipping article from unwanted provider: {provider}")
+                    except Exception as e:
+                        logger.warning(f"Error checking article provider: {str(e)}")
+                        continue
                 
                 logger.info(f"Found {len(found_items)} articles in total")
                 
