@@ -184,10 +184,10 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             # Try different selectors for the content
                             content = None
                             selectors = [
-                                '.body-bETdSLzM',  # Original selector
-                                'article p',  # Paragraphs within article
-                                '.tv-news-content',  # News content class
-                                '.tv-news__content'  # Alternative news content class
+                                '.body-KX2tCBZq',  # New main selector
+                                '.body-pIO_GYwT',  # Alternative class
+                                '.content-pIO_GYwT',  # Alternative class
+                                'div[class*="body-"] p'  # Fallback: any div with class containing "body-" and its paragraphs
                             ]
                             
                             for selector in selectors:
