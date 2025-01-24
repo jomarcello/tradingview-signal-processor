@@ -121,6 +121,11 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 processed = 0
                 
                 articles = []
+                wanted_titles = [
+                    "EURUSD Technical Analysis – Easing in tariffs risk weakens the USD",
+                    "Euro Appreciates, ECB Awaited",
+                    "Euro Extends Gains After Eurozone PMI Data — Market Talk"
+                ]
                 
                 while len(articles) < 3 and processed < len(news_items):
                     try:
@@ -134,6 +139,11 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         
                         if not title:
                             logger.warning("Could not find title")
+                            continue
+                            
+                        # Check if this is one of the titles we want
+                        if title not in wanted_titles:
+                            logger.info(f"Skipping unwanted article: {title}")
                             continue
                             
                         # Find the parent <a> tag and get its properties
