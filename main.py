@@ -313,7 +313,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
         logger.error(f"Error traceback: {traceback.format_exc()}")
         raise
 
-N8N_WEBHOOK_URL = "primary-production-007c.up.railway.app/webhook-test/c10fba2b-0fbd-471f-9db1-907c1c754802"  # Configureer de webhook URL
+N8N_WEBHOOK_URL = "https://primary-production-007c.up.railway.app/webhook-test/c10fba2b-0fbd-471f-9db1-907c1c754802"  # Configureer de webhook URL
 
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal) -> dict:
