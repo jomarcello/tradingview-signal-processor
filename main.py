@@ -13,6 +13,7 @@ from datetime import datetime
 import pytz
 from bs4 import BeautifulSoup
 import requests
+import httpx
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +28,13 @@ REQUEST_TIMEOUT = 60  # seconds
 PROXY_URL = os.getenv("PROXY_URL", "http://proxy.apify.com:8000")
 PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
+
+# Supabase configuratie
+SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'
+SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
+
+# n8n webhook URL
+N8N_WEBHOOK_URL = "https://primary-production-007c.up.railway.app/webhook-test/c10fba2b-0fbd-471f-9db1-907c1c754802"
 
 class TradingSignal(BaseModel):
     instrument: str
@@ -315,7 +323,19 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
         logger.error(f"Error traceback: {traceback.format_exc()}")
         raise
 
-N8N_WEBHOOK_URL = "https://primary-production-007c.up.railway.app/webhook-test/c10fba2b-0fbd-471f-9db1-907c1c754802"  # Configureer de webhook URL
+async def get_subscribers(instrument: str, timeframe: str) -> List[dict]:
+    """Haal subscribers op uit Supabase die matchen met het instrument en timeframe."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{SUPABASE_URL}?select=*&instrument=eq.{instrument}&timeframe=eq.{timeframe}",
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+                'Content-Type': 'application/json'
+            }
+        )
+        response.raise_for_status()
+        return response.json()
 
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal) -> dict:
@@ -323,47 +343,44 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
     try:
         logger.info(f"Processing signal for {signal.instrument}")
         
-        # Extract relevant signal data
-        instrument = signal.instrument
-        action = signal.action
-        price = signal.price
-        timestamp = signal.timestamp
-        strategy = signal.strategy
-        timeframe = signal.timeframe
-        stoploss = signal.stoploss
-        takeprofit = signal.takeprofit
+        # Get matching subscribers from Supabase
+        subscribers = await get_subscribers(signal.instrument, signal.timeframe)
+        logger.info(f"Found {len(subscribers)} matching subscribers")
+        
+        # Extract just the chat_ids
+        chat_ids = [sub["chat_id"] for sub in subscribers]
         
         # Get news articles
-        news_data = await get_news_with_playwright(instrument)
+        news_data = await get_news_with_playwright(signal.instrument)
         
         # Prepare webhook data
         webhook_data = {
             "signal": {
-                "instrument": instrument,
-                "action": action,
-                "price": price,
-                "timestamp": timestamp,
-                "strategy": strategy,
-                "timeframe": timeframe,
-                "stoploss": stoploss,
-                "takeprofit": takeprofit
+                "instrument": signal.instrument,
+                "action": signal.action,
+                "price": signal.price,
+                "timestamp": signal.timestamp,
+                "strategy": signal.strategy,
+                "timeframe": signal.timeframe,
+                "stoploss": signal.stoploss,
+                "takeprofit": signal.takeprofit
             },
-            "news": news_data,
-            "timestamp": timestamp
+            "chat_ids": chat_ids,
+            "news": news_data
         }
         
         # Send to n8n webhook
         try:
             logger.info(f"Sending data to webhook: {N8N_WEBHOOK_URL}")
-            response = requests.post(N8N_WEBHOOK_URL, json=webhook_data)
-            logger.info(f"Webhook response status: {response.status_code}")
-            logger.info(f"Webhook response content: {response.text}")
-            response.raise_for_status()  # Raise an exception for bad status codes
+            async with httpx.AsyncClient() as client:
+                response = await client.post(N8N_WEBHOOK_URL, json=webhook_data)
+                logger.info(f"Webhook response status: {response.status_code}")
+                logger.info(f"Webhook response content: {response.text}")
+                response.raise_for_status()
             logger.info(f"Successfully sent data to n8n webhook")
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.error(f"Failed to send data to n8n webhook: {str(e)}")
-            # We still return success to the client, but log the webhook error
-        
+            
         return {
             "status": "success",
             "message": "Signal processed successfully",
@@ -372,11 +389,5 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
-        
-        return {
-            "status": "error",
-            "message": f"Error processing signal: {str(e)}",
-            "data": None
-        }
+        raise
