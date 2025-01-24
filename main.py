@@ -117,6 +117,13 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 logger.info(f"Found {len(news_items)} news items")
                 
+                # Log all titles we find
+                all_titles = []
+                for item in news_items:
+                    title = await item.get_attribute('data-overflow-tooltip-text')
+                    all_titles.append(title)
+                logger.info(f"All titles found: {all_titles}")
+                
                 # Keep track of which items we've processed
                 processed = 0
                 
@@ -126,6 +133,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                     "Euro Appreciates, ECB Awaited",
                     "Euro Extends Gains After Eurozone PMI Data — Market Talk"
                 ]
+                logger.info(f"Looking for these titles: {wanted_titles}")
                 
                 while len(articles) < 3 and processed < len(news_items):
                     try:
@@ -135,7 +143,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         
                         # Get title from the element
                         title = await item.get_attribute('data-overflow-tooltip-text')
-                        logger.info(f"Got title attribute: {title}")
+                        logger.info(f"Processing title: {title}")
                         
                         if not title:
                             logger.warning("Could not find title")
@@ -146,6 +154,8 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             logger.info(f"Skipping unwanted article: {title}")
                             continue
                             
+                        logger.info(f"Found wanted article: {title}")
+                        
                         # Find the parent <a> tag and get its properties
                         parent_info = await item.evaluate('''element => {
                             const parent = element.closest("a");
