@@ -12,6 +12,7 @@ import asyncio
 from datetime import datetime
 import pytz
 from bs4 import BeautifulSoup
+import requests
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -312,30 +313,56 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
         logger.error(f"Error traceback: {traceback.format_exc()}")
         raise
 
+N8N_WEBHOOK_URL = "YOUR_N8N_WEBHOOK_URL_HERE"  # Dit moet je aanpassen naar je eigen n8n webhook URL
+
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal) -> dict:
     """Process a trading signal and return relevant news."""
     try:
         logger.info(f"Processing signal for {signal.instrument}")
         
-        # Get news for the instrument
-        news_data = await get_news_with_playwright(signal.instrument)
+        # Extract relevant signal data
+        instrument = signal.instrument
+        action = signal.action
+        price = signal.price
+        timestamp = signal.timestamp
+        strategy = signal.strategy
+        timeframe = signal.timeframe
         
-        # Return all news articles
+        # Get news articles
+        news_data = await get_news_with_playwright(instrument)
+        
+        # Prepare data for n8n
+        webhook_data = {
+            "signal": {
+                "instrument": instrument,
+                "action": action,
+                "price": price,
+                "timestamp": timestamp,
+                "strategy": strategy,
+                "timeframe": timeframe
+            },
+            "news": news_data,
+            "timestamp": timestamp
+        }
+        
+        # Send to n8n webhook
+        try:
+            response = requests.post(N8N_WEBHOOK_URL, json=webhook_data)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            logger.info(f"Successfully sent data to n8n webhook. Status code: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to send data to n8n webhook: {str(e)}")
+            # We still return success to the client, but log the webhook error
+        
         return {
             "status": "success",
             "message": "Signal processed successfully",
-            "data": {
-                "signal": {
-                    "instrument": signal.instrument,
-                    "timestamp": signal.timestamp
-                },
-                "news": news_data,  # Return all articles
-                "timestamp": signal.timestamp
-            }
+            "data": webhook_data
         }
+        
     except Exception as e:
-        logger.error(f"Error in processing: {str(e)}")
+        logger.error(f"Error processing signal: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
         
