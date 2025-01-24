@@ -154,13 +154,13 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First find all the wanted articles
                 found_items = []
-                wanted_providers = [
-                    "forexlive",          # Forexlive
-                    "tradingeconomics",    # Trading Economics
-                    "dowjones",           # Dow Jones Newswires
-                    "reuters"             # Reuters
-                ]
-                logger.info(f"Looking for articles from these providers: {wanted_providers}")
+                provider_mapping = {
+                    'forexlive': 'forexlive',
+                    'trading economics': 'tradingeconomics',
+                    'dow jones newswires': 'dowjones',
+                    'reuters': 'reuters'
+                }
+                logger.info(f"Looking for articles from these providers: {list(provider_mapping.keys())}")
                 
                 for item in news_items:
                     try:
@@ -169,16 +169,25 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             const parent = element.closest("a");
                             if (!parent) return null;
                             
-                            // Get the provider element and log its details
+                            // Try different provider selectors
                             const article = element.closest('article');
-                            const providerElement = article ? article.querySelector('.provider-HY0D0owe span') : null;
-                            const providerHtml = providerElement ? providerElement.outerHTML : 'not found';
-                            const provider = providerElement ? providerElement.textContent.toLowerCase() : '';
+                            if (!article) return null;
                             
-                            // Log article structure
-                            console.log('Article HTML:', article ? article.outerHTML : 'no article found');
-                            console.log('Provider element:', providerHtml);
-                            console.log('Provider text:', provider);
+                            // Try different provider selectors
+                            const providerSelectors = [
+                                '.provider-HY0D0owe span',
+                                '.provider-TUPxzdRV span',
+                                '.provider span',
+                                '[class*="provider-"] span'
+                            ];
+                            
+                            let providerElement = null;
+                            for (const selector of providerSelectors) {
+                                providerElement = article.querySelector(selector);
+                                if (providerElement) break;
+                            }
+                            
+                            const provider = providerElement ? providerElement.textContent.toLowerCase().trim() : '';
                             
                             return {
                                 href: parent.getAttribute("href"),
@@ -187,7 +196,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             };
                         }''')
                         
-                        if not parent_info or 'provider' not in parent_info:
+                        if not parent_info or 'provider' not in parent_info or not parent_info['provider']:
                             logger.warning("Could not find provider info in article")
                             continue
                             
@@ -195,7 +204,7 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.info(f"Found article from provider: {provider}")
                         
                         # Check if this is one of the providers we want
-                        if any(wanted_provider in provider for wanted_provider in wanted_providers):
+                        if provider in provider_mapping:
                             title = await item.get_attribute('data-overflow-tooltip-text')
                             logger.info(f"Found article from wanted provider {provider}: {title}")
                             found_items.append((title, item))
