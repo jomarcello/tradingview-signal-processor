@@ -76,116 +76,51 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
             )
             logger.info("Browser launched successfully with debugging options")
             
-            # Create a new page with viewport
-            page = await browser.new_page(
-                viewport={'width': 1920, 'height': 1080}
-            )
-            
-            # Set extra HTTP headers
-            await page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9'
-            })
-            
-            # Navigate to TradingView news page for the instrument
-            url = f"https://www.tradingview.com/symbols/{instrument}/news/"
-            response = await page.goto(url)
-            logger.info(f"Navigated to URL: {url}")
-            logger.info(f"Response status: {response.status}")
-            
-            # Log response headers
-            headers = await response.all_headers()
-            logger.info(f"Response headers: {headers}")
-            
-            # Take a screenshot even in headless mode
-            await page.screenshot(path="/tmp/tradingview.png")
-            logger.info("Screenshot saved")
-            
-            # Wait for the page to load
-            await page.wait_for_load_state('networkidle')
-            
             try:
-                # Wait a bit and scroll
-                logger.info("Waiting for page to settle")
-                await page.wait_for_timeout(5000)  # Wait 5 seconds
+                # Create a new page with viewport
+                page = await browser.new_page(
+                    viewport={'width': 1920, 'height': 1080}
+                )
                 
-                # Scroll down to load dynamic content
-                logger.info("Scrolling page")
-                await page.evaluate('window.scrollBy(0, 500)')
-                await page.wait_for_timeout(2000)  # Wait after scroll
+                # Set extra HTTP headers
+                await page.set_extra_http_headers({
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9'
+                })
                 
-                # Take screenshot for debugging
-                logger.info("Taking screenshot")
-                await page.screenshot(path='/tmp/debug.png', full_page=True)
+                # Navigate to TradingView news page for the instrument
+                url = f"https://www.tradingview.com/symbols/{instrument}/news/"
+                response = await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                logger.info(f"Navigated to URL: {url}")
+                logger.info(f"Response status: {response.status}")
                 
-                # Get page content for debugging
-                logger.info("Getting page content")
-                page_content = await page.content()
-                logger.info(f"Page content: {page_content[:1000]}...")
+                # Log response headers
+                headers = await response.all_headers()
+                logger.info(f"Response headers: {headers}")
                 
-                # Wait for news feed with retry
-                logger.info("Waiting for news feed")
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        # Try different selectors
-                        selectors = [
-                            '.title-HY0D0owe',
-                            '[data-name="news-headline-title"]',
-                            '.title-DmjQR0Aa',
-                            'a[href*="/news/"]'  # Any link containing /news/
-                        ]
-                        
-                        for selector in selectors:
-                            try:
-                                logger.info(f"Trying selector: {selector}")
-                                await page.wait_for_selector(selector, timeout=10000)
-                                logger.info(f"Found selector: {selector}")
-                                break
-                            except Exception:
-                                continue
-                        break
-                    except Exception as e:
-                        if attempt == max_retries - 1:
-                            raise
-                        logger.warning(f"Retry {attempt + 1}/{max_retries} waiting for news feed")
-                        await page.reload(wait_until='load', timeout=60000)
-                        await page.wait_for_timeout(5000)
-                        await page.evaluate('window.scrollBy(0, 500)')
-                        await page.wait_for_timeout(2000)
+                # Wait for specific elements instead of networkidle
+                try:
+                    await page.wait_for_selector('.title-HY0D0owe', timeout=10000)
+                    logger.info("Found news title elements")
+                except Exception as e:
+                    logger.warning(f"Could not find news titles: {str(e)}")
+                    
+                # Take a screenshot for debugging
+                await page.screenshot(path="/tmp/tradingview.png")
+                logger.info("Screenshot saved")
                 
-                # Get news articles with content
-                articles = []
-                
-                # Log the current page content
-                page_content = await page.content()
-                logger.info(f"Page content before searching: {page_content[:1000]}...")
-                
-                # Try different selectors for news items
-                news_items = []
-                selectors = [
-                    '.title-HY0D0owe',
-                    '[data-name="news-headline-title"]',
-                    '.title-DmjQR0Aa'
-                ]
-                
-                for selector in selectors:
-                    logger.info(f"Trying to find news items with selector: {selector}")
-                    items = await page.query_selector_all(selector)
-                    if items:
-                        logger.info(f"Found {len(items)} items with selector {selector}")
-                        news_items = items
-                        break
-                    else:
-                        logger.info(f"No items found with selector {selector}")
-                
+                # Get news items
+                news_items = await page.query_selector_all('.title-HY0D0owe')
                 if not news_items:
-                    raise Exception("Could not find any news items")
+                    logger.warning("No news items found with primary selector, trying alternatives...")
+                    news_items = await page.query_selector_all('[data-name="news-headline-title"]')
                 
                 logger.info(f"Found {len(news_items)} news items")
                 
                 # Keep track of which items we've processed
                 processed = 0
+                
+                articles = []
                 
                 while len(articles) < 3 and processed < len(news_items):
                     try:
