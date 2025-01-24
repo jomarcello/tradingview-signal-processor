@@ -29,12 +29,14 @@ PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
 class TradingSignal(BaseModel):
+    instrument: str
     action: str
     price: float
+    timestamp: Optional[str]
     strategy: Optional[str]
     timeframe: Optional[str]
-    instrument: str
-    timestamp: Optional[str]
+    stoploss: float
+    takeprofit: float
 
 async def get_rotating_proxy():
     """Get a rotating proxy from a proxy service"""
@@ -328,11 +330,13 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         timestamp = signal.timestamp
         strategy = signal.strategy
         timeframe = signal.timeframe
+        stoploss = signal.stoploss
+        takeprofit = signal.takeprofit
         
         # Get news articles
         news_data = await get_news_with_playwright(instrument)
         
-        # Prepare data for n8n
+        # Prepare webhook data
         webhook_data = {
             "signal": {
                 "instrument": instrument,
@@ -340,7 +344,9 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 "price": price,
                 "timestamp": timestamp,
                 "strategy": strategy,
-                "timeframe": timeframe
+                "timeframe": timeframe,
+                "stoploss": stoploss,
+                "takeprofit": takeprofit
             },
             "news": news_data,
             "timestamp": timestamp
