@@ -69,31 +69,26 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
     
     try:
         async with async_playwright() as p:
-            # Install browsers first
-            logger.info("Installing browsers")
-            import subprocess
-            subprocess.run(['playwright', 'install', 'chromium'])
+            # Launch browser in headful mode with screenshots enabled
+            browser = await p.chromium.launch(headless=False)
+            logger.info("Browser launched successfully in headful mode")
             
-            # Launch browser with custom user agent
-            browser = await p.chromium.launch(
-                headless=True
-            )
+            # Create a new page
+            page = await browser.new_page()
             
-            # Create context with user agent
-            context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
+            # Navigate to TradingView news page for the instrument
+            url = f"https://www.tradingview.com/symbols/{instrument}/news/"
+            await page.goto(url)
+            logger.info(f"Navigated to URL: {url}")
             
-            logger.info("Creating context")
-            page = await context.new_page()
-            logger.info("Created new page")
+            # Take a screenshot
+            await page.screenshot(path="/tmp/tradingview.png")
+            logger.info("Screenshot saved to /tmp/tradingview.png")
+            
+            # Wait for the page to load
+            await page.wait_for_load_state('networkidle')
             
             try:
-                # Go directly to news page
-                logger.info("Going to news page")
-                url = f'https://www.tradingview.com/symbols/{instrument}/news/'
-                await page.goto(url, wait_until='load', timeout=60000)  # Increased timeout
-                
                 # Wait a bit and scroll
                 logger.info("Waiting for page to settle")
                 await page.wait_for_timeout(5000)  # Wait 5 seconds
@@ -281,7 +276,6 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
         
             finally:
                 logger.info("Cleaning up browser resources")
-                await context.close()
                 await browser.close()
         
     except Exception as e:
