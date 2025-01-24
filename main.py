@@ -147,50 +147,46 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 found_items.sort(key=lambda x: wanted_titles.index(x[0]))
                 logger.info(f"Found {len(found_items)} wanted articles in correct order")
                 
-                # Process found items in order
-                articles = []
-                for title, item in found_items:
-                    try:
-                        logger.info(f"Processing article: {title}")
-                        
-                        # Find the parent <a> tag and get its properties
-                        parent_info = await item.evaluate('''element => {
-                            const parent = element.closest("a");
-                            if (!parent) return null;
-                            return {
-                                href: parent.getAttribute("href"),
-                                html: parent.outerHTML
-                            };
-                        }''')
-                        logger.info(f"Parent info: {parent_info}")
-                        
-                        if not parent_info or 'href' not in parent_info:
-                            logger.warning("Could not find href")
-                            continue
-                            
-                        href = parent_info['href']
-                        if not href:
-                            logger.warning("Empty href")
-                            continue
-                            
-                        # Skip Mace News articles
-                        if 'macenews:' in href:
-                            logger.info(f"Skipping Mace News article: {title}")
-                            continue
-                            
-                        # Open article in new page
-                        logger.info(f"Opening article: {title}")
-                        article_url = f"https://www.tradingview.com{href}"
-                        logger.info(f"Navigating to: {article_url}")
-                        
-                        article_page = await browser.new_page()
+                # Create a page for articles
+                article_page = await browser.new_page()
+                try:
+                    # Process found items in order
+                    articles = []
+                    for title, item in found_items:
                         try:
+                            logger.info(f"Processing article: {title}")
+                            
+                            # Find the parent <a> tag and get its properties
+                            parent_info = await item.evaluate('''element => {
+                                const parent = element.closest("a");
+                                if (!parent) return null;
+                                return {
+                                    href: parent.getAttribute("href"),
+                                    html: parent.outerHTML
+                                };
+                            }''')
+                            logger.info(f"Parent info: {parent_info}")
+                            
+                            if not parent_info or 'href' not in parent_info:
+                                logger.warning("Could not find href")
+                                continue
+                                
+                            href = parent_info['href']
+                            if not href:
+                                logger.warning("Empty href")
+                                continue
+                                
+                            # Skip Mace News articles
+                            if 'macenews:' in href:
+                                logger.info(f"Skipping Mace News article: {title}")
+                                continue
+                                
+                            # Navigate to article
+                            article_url = f"https://www.tradingview.com{href}"
+                            logger.info(f"Navigating to: {article_url}")
+                            
                             await article_page.goto(article_url, wait_until='domcontentloaded')
                             logger.info("Waiting for article content")
-                            
-                            # Log the page HTML for debugging
-                            page_html = await article_page.content()
-                            logger.info(f"Page HTML: {page_html[:500]}...")
                             
                             # Try different selectors for the article content
                             content = None
@@ -224,8 +220,8 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                             logger.warning(f"Error processing article: {str(e)}")
                             continue
                             
-                        finally:
-                            await article_page.close()
+                finally:
+                    await article_page.close()
                 
                 if not articles:
                     raise Exception("No articles with content found")
