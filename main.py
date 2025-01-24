@@ -98,22 +98,41 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 await page.wait_for_timeout(2000)
                 
                 # Scroll multiple times to load more articles
-                scroll_attempts = 5  # Increase number of scroll attempts
+                scroll_attempts = 5
+                last_count = 0
                 for i in range(scroll_attempts):
                     logger.info(f"Scroll attempt {i+1}/{scroll_attempts}")
                     
+                    # Get current height
+                    current_height = await page.evaluate('document.body.scrollHeight')
+                    logger.info(f"Current height: {current_height}")
+                    
                     # Scroll to bottom
                     await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                    await asyncio.sleep(1)  # Wait for content to load
+                    await asyncio.sleep(2)  # Wait longer for content to load
+                    
+                    # Get new height
+                    new_height = await page.evaluate('document.body.scrollHeight')
+                    logger.info(f"New height after scroll: {new_height}")
                     
                     # Get current number of articles
                     current_items = await page.query_selector_all('.title-HY0D0owe')
                     logger.info(f"Found {len(current_items)} articles after scroll {i+1}")
                     
+                    # Check if we're still loading new content
+                    if len(current_items) == last_count and current_height == new_height:
+                        logger.info("No new content loaded, stopping scroll")
+                        break
+                    
+                    last_count = len(current_items)
+                    
                     # Check if we've loaded enough
-                    if len(current_items) >= 50:  # Increase target number
+                    if len(current_items) >= 50:
                         logger.info("Found enough articles, stopping scroll")
                         break
+                    
+                    # Wait for new content to load
+                    await asyncio.sleep(1)
                 
                 await page.screenshot(path="/tmp/tradingview.png")
                 logger.info("Screenshot saved")
@@ -135,24 +154,45 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First find all the wanted articles
                 found_items = []
-                wanted_titles = [
-                    "EURUSD Technical Analysis – Easing in tariffs risk weakens the USD",
-                    "Euro Appreciates, ECB Awaited",
-                    "Euro Extends Gains After Eurozone PMI Data — Market Talk"
+                wanted_urls = [
+                    "forexlive:",  # ForexLive artikelen
+                    "macenews:",   # MacroEconomic News artikelen
+                    "dowjones:"    # Dow Jones artikelen
                 ]
-                logger.info(f"Looking for these specific titles: {wanted_titles}")
+                logger.info(f"Looking for articles with these URL patterns: {wanted_urls}")
                 
                 for item in news_items:
-                    title = await item.get_attribute('data-overflow-tooltip-text')
-                    if title in wanted_titles:
-                        found_items.append((title, item))
-                        logger.info(f"Found wanted article: {title}")
-                    else:
-                        logger.info(f"Skipping unwanted article: {title}")
+                    try:
+                        # Get the href from the parent link
+                        parent_info = await item.evaluate('''element => {
+                            const parent = element.closest("a");
+                            if (!parent) return null;
+                            return {
+                                href: parent.getAttribute("href"),
+                                html: parent.outerHTML
+                            };
+                        }''')
+                        
+                        if not parent_info or 'href' not in parent_info:
+                            continue
+                            
+                        href = parent_info['href']
+                        if not href:
+                            continue
+                            
+                        # Check if this is one of the URL patterns we want
+                        if any(pattern in href for pattern in wanted_urls):
+                            title = await item.get_attribute('data-overflow-tooltip-text')
+                            logger.info(f"Found article with matching URL pattern: {href} - Title: {title}")
+                            found_items.append((title, item))
+                        else:
+                            logger.info(f"Skipping article with non-matching URL: {href}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Error checking article URL: {str(e)}")
+                        continue
                 
-                # Sort found items according to wanted_titles order
-                found_items.sort(key=lambda x: wanted_titles.index(x[0]))
-                logger.info(f"Found {len(found_items)} wanted articles in correct order: {[title for title, _ in found_items]}")
+                logger.info(f"Found {len(found_items)} articles with matching URL patterns")
                 
                 # Create a page for articles
                 article_page = await browser.new_page()
