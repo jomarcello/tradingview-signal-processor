@@ -154,15 +154,20 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # First find all the wanted articles
                 found_items = []
-                provider_mapping = {
-                    'forexlive': 'forexlive',
-                    'trading economics': 'tradingeconomics',
-                    'dow jones newswires': 'dowjones',
-                    'reuters': 'reuters'
+                wanted_providers = {
+                    'forexlive',
+                    'trading economics',
+                    'dow jones newswires',
+                    'reuters'
                 }
-                logger.info(f"Looking for articles from these providers: {list(provider_mapping.keys())}")
+                logger.info(f"Looking for 3 most recent articles from any of these providers: {wanted_providers}")
                 
                 for item in news_items:
+                    # Stop if we already have 3 articles
+                    if len(found_items) >= 3:
+                        logger.info("Found 3 articles, stopping search")
+                        break
+                        
                     try:
                         # Get the href and provider from the parent link
                         parent_info = await item.evaluate('''element => {
@@ -204,18 +209,15 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.info(f"Found article from provider: {provider}")
                         
                         # Check if this is one of the providers we want
-                        if provider in provider_mapping:
+                        if provider in wanted_providers:
                             title = await item.get_attribute('data-overflow-tooltip-text')
-                            logger.info(f"Found article from wanted provider {provider}: {title}")
-                            found_items.append((title, item))
+                            if title:  # Only add articles with a valid title
+                                logger.info(f"Found article from wanted provider {provider}: {title}")
+                                found_items.append((title, item))
                         else:
                             logger.info(f"Skipping article from unwanted provider: {provider}")
-                            
-                    except Exception as e:
-                        logger.warning(f"Error checking article provider: {str(e)}")
-                        continue
                 
-                logger.info(f"Found {len(found_items)} articles from wanted providers")
+                logger.info(f"Found {len(found_items)} articles in total")
                 
                 # Create a page for articles
                 article_page = await browser.new_page()
