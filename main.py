@@ -29,12 +29,10 @@ PROXY_URL = os.getenv("PROXY_URL", "http://proxy.apify.com:8000")
 PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
-# Supabase configuratie
+# Services URLs
+SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app/process-signal"
 SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
-
-# n8n webhook URL
-N8N_WEBHOOK_URL = "https://primary-production-007c.up.railway.app/webhook-test/c10fba2b-0fbd-471f-9db1-907c1c754802"
 
 class TradingSignal(BaseModel):
     instrument: str
@@ -353,8 +351,8 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         # Get news articles
         news_data = await get_news_with_playwright(signal.instrument)
         
-        # Prepare webhook data
-        webhook_data = {
+        # Prepare data for Signal AI Service
+        signal_data = {
             "signal": {
                 "instrument": signal.instrument,
                 "action": signal.action,
@@ -369,25 +367,26 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             "news": news_data
         }
         
-        # Send to n8n webhook
+        # Send to Signal AI Service
         try:
-            logger.info(f"Sending data to webhook: {N8N_WEBHOOK_URL}")
+            logger.info(f"Sending data to Signal AI Service")
             async with httpx.AsyncClient() as client:
-                response = await client.post(N8N_WEBHOOK_URL, json=webhook_data)
-                logger.info(f"Webhook response status: {response.status_code}")
-                logger.info(f"Webhook response content: {response.text}")
+                response = await client.post(SIGNAL_AI_SERVICE_URL, json=signal_data)
+                logger.info(f"Signal AI Service response status: {response.status_code}")
+                logger.info(f"Signal AI Service response content: {response.text}")
                 response.raise_for_status()
-            logger.info(f"Successfully sent data to n8n webhook")
+            logger.info(f"Successfully sent data to Signal AI Service")
         except Exception as e:
-            logger.error(f"Failed to send data to n8n webhook: {str(e)}")
+            logger.error(f"Failed to send data to Signal AI Service: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
             
         return {
             "status": "success",
             "message": "Signal processed successfully",
-            "data": webhook_data
+            "data": signal_data
         }
         
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
-        raise
+        raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
