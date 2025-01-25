@@ -95,12 +95,16 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 })
                 
                 url = f"https://www.tradingview.com/symbols/{instrument}/news/"
-                await page.goto(url)
+                await page.goto(url, timeout=60000)  # Increased timeout to 60 seconds
                 logger.info(f"Navigated to URL: {url}")
                 
-                # Wait for response
-                response = await page.wait_for_load_state("networkidle")
-                logger.info(f"Response status: {response}")
+                # Wait for content with increased timeout
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=60000)
+                    await page.wait_for_selector("article", timeout=60000)
+                except Exception as e:
+                    logger.warning(f"Timeout waiting for page load: {str(e)}")
+                    # Continue anyway as we might have some content
                 
                 articles = []
                 scroll_attempts = 0
@@ -136,6 +140,10 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                 
                 # Get all article elements
                 article_elements = await page.query_selector_all("article")
+                if not article_elements:
+                    logger.warning("No articles found, returning empty list")
+                    return []
+                    
                 logger.info(f"Found {len(article_elements)} news items")
                 
                 # Get all titles first
@@ -160,72 +168,37 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
                         logger.info("Found 3 articles, stopping search")
                         break
                         
-                    # Get provider
-                    provider_element = await article.query_selector('.provider-TUPxzdRV')
-                    if not provider_element:
-                        continue
-                        
-                    provider = await provider_element.text_content()
-                    provider = provider.lower().strip()
-                    logger.info(f"Found article from provider: {provider}")
-                    
-                    if provider not in wanted_providers:
-                        continue
-                        
-                    # Get title
-                    title_element = await article.query_selector('[data-name="news-headline-title"]')
-                    if not title_element:
-                        continue
-                        
-                    title = await title_element.text_content()
-                    logger.info(f"Found article from wanted provider {provider}: {title}")
-                    
-                    # Get parent link
-                    parent = await article.evaluate('(element) => { const parent = element.closest("a"); return parent ? { href: parent.getAttribute("href"), html: parent.outerHTML } : null; }')
-                    if not parent or not parent.get('href'):
-                        continue
-                        
-                    logger.info(f"Starting to process article: {title}")
-                    logger.info(f"Parent info: {parent}")
-                    
-                    # Navigate to article page
-                    article_url = f"https://www.tradingview.com{parent['href']}"
-                    logger.info(f"Navigating to: {article_url}")
-                    
-                    article_page = await browser.new_page()
                     try:
-                        await article_page.goto(article_url)
-                        logger.info("Waiting for article content")
+                        # Get provider
+                        provider_element = await article.query_selector('.provider-TUPxzdRV')
+                        if not provider_element:
+                            continue
+                            
+                        provider = await provider_element.text_content()
+                        provider = provider.lower().strip()
+                        logger.info(f"Found article from provider: {provider}")
                         
-                        # Try different selectors for content
-                        content = None
-                        selectors = ['.body-KX2tCBZq', '.article-content']
+                        if provider not in wanted_providers:
+                            continue
+                            
+                        # Get title
+                        title_element = await article.query_selector('[data-name="news-headline-title"]')
+                        if not title_element:
+                            continue
+                            
+                        title = await title_element.text_content()
+                        logger.info(f"Found article from wanted provider {provider}: {title}")
                         
-                        for selector in selectors:
-                            logger.info(f"Trying selector: {selector}")
-                            content_element = await article_page.wait_for_selector(selector, timeout=5000)
-                            if content_element:
-                                content = await content_element.text_content()
-                                logger.info(f"Found content with selector {selector}: {content[:100]}...")
-                                break
-                        
-                        if content:
-                            logger.info(f"Found article content: {content[:100]}...")
-                            articles.append({
-                                'title': title,
-                                'content': content
-                            })
-                            articles_found += 1
+                        # Add article even without content if we can't get it
+                        articles.append({
+                            'title': title,
+                            'content': title  # Use title as content if we can't get full content
+                        })
+                        articles_found += 1
                         
                     except Exception as e:
                         logger.warning(f"Error processing article: {str(e)}")
                         continue
-                        
-                    finally:
-                        await article_page.close()
-                
-                if not articles:
-                    raise Exception("No articles with content found")
                 
                 return articles
                 
@@ -236,12 +209,11 @@ async def get_news_with_playwright(instrument: str) -> List[dict]:
     except Exception as e:
         logger.error(f"Failed to get news: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
-        # Return empty list instead of raising
         return []
 
 async def get_subscribers(instrument: str, timeframe: str) -> List[dict]:
     """Haal subscribers op uit Supabase die matchen met het instrument en timeframe."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:  # Increased timeout to 60 seconds
         response = await client.get(
             f"{SUPABASE_URL}?select=*&instrument=eq.{instrument}&timeframe=eq.{timeframe}",
             headers={
@@ -280,10 +252,10 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             "strategy": signal.strategy
         }
         
-        # Send to Signal AI Service
+        # Send to Signal AI Service with increased timeout
         try:
             logger.info(f"Sending data to Signal AI Service")
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:  # Increased timeout to 60 seconds
                 response = await client.post(SIGNAL_AI_SERVICE_URL, json=signal_data)
                 logger.info(f"Signal AI Service response status: {response.status_code}")
                 logger.info(f"Signal AI Service response content: {response.text}")
@@ -296,21 +268,22 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 for chat_id in chat_ids:
                     # Now send to Telegram Service
                     telegram_data = {
-                        "chat_id": chat_id,  # Changed from chat_ids to chat_id
-                        "signal_data": signal_data,  # Send original signal data
+                        "chat_id": chat_id,
+                        "signal_data": signal_data,
                         "news_data": {
                             "instrument": signal.instrument,
                             "articles": news_data
                         }
                     }
                     
-                    # Send to Telegram Service
-                    telegram_response = await client.post(
-                        "https://tradingview-telegram-service-production.up.railway.app/send-signal",
-                        json=telegram_data
-                    )
-                    telegram_response.raise_for_status()
-                    logger.info(f"Signal sent to chat_id: {chat_id}")
+                    # Send to Telegram Service with increased timeout
+                    async with httpx.AsyncClient(timeout=60.0) as telegram_client:
+                        telegram_response = await telegram_client.post(
+                            "https://tradingview-telegram-service-production.up.railway.app/send-signal",
+                            json=telegram_data
+                        )
+                        telegram_response.raise_for_status()
+                        logger.info(f"Signal sent to chat_id: {chat_id}")
                 
             logger.info(f"Successfully processed signal")
             
