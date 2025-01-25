@@ -30,7 +30,7 @@ PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
 # Services URLs
-SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app/process-signal"
+SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app/format-signal"
 SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
 
@@ -353,18 +353,13 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         
         # Prepare data for Signal AI Service
         signal_data = {
-            "signal": {
-                "instrument": signal.instrument,
-                "action": signal.action,
-                "price": signal.price,
-                "timestamp": signal.timestamp,
-                "strategy": signal.strategy,
-                "timeframe": signal.timeframe,
-                "stoploss": signal.stoploss,
-                "takeprofit": signal.takeprofit
-            },
-            "chat_ids": chat_ids,
-            "news": news_data
+            "instrument": signal.instrument,
+            "direction": signal.action,
+            "entry_price": signal.price,
+            "stop_loss": signal.stoploss,
+            "take_profit": signal.takeprofit,
+            "timeframe": signal.timeframe,
+            "strategy": signal.strategy
         }
         
         # Send to Signal AI Service
@@ -375,17 +370,44 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 logger.info(f"Signal AI Service response status: {response.status_code}")
                 logger.info(f"Signal AI Service response content: {response.text}")
                 response.raise_for_status()
-            logger.info(f"Successfully sent data to Signal AI Service")
+                
+                # Get formatted message
+                formatted_message = response.json()["formatted_message"]
+                
+                # Now send to Telegram Service
+                telegram_data = {
+                    "chat_ids": chat_ids,
+                    "signal_text": formatted_message,
+                    "news_data": {
+                        "instrument": signal.instrument,
+                        "articles": news_data
+                    }
+                }
+                
+                # Send to Telegram Service
+                telegram_response = await client.post(
+                    "https://tradingview-telegram-service-production.up.railway.app/send-signal",
+                    json=telegram_data
+                )
+                telegram_response.raise_for_status()
+                
+            logger.info(f"Successfully processed signal")
+            
+            return {
+                "status": "success",
+                "message": "Signal processed successfully",
+                "data": {
+                    "signal": signal_data,
+                    "formatted_message": formatted_message,
+                    "chat_ids": chat_ids,
+                    "news": news_data
+                }
+            }
+            
         except Exception as e:
-            logger.error(f"Failed to send data to Signal AI Service: {str(e)}")
+            logger.error(f"Failed to process signal: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
             
-        return {
-            "status": "success",
-            "message": "Signal processed successfully",
-            "data": signal_data
-        }
-        
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
