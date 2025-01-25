@@ -374,22 +374,25 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 # Get formatted message
                 formatted_message = response.json()["formatted_message"]
                 
-                # Now send to Telegram Service
-                telegram_data = {
-                    "chat_ids": chat_ids,
-                    "signal_text": formatted_message,
-                    "news_data": {
-                        "instrument": signal.instrument,
-                        "articles": news_data
+                # Send to each subscriber
+                for chat_id in chat_ids:
+                    # Now send to Telegram Service
+                    telegram_data = {
+                        "chat_id": chat_id,  # Changed from chat_ids to chat_id
+                        "signal_data": signal_data,  # Send original signal data
+                        "news_data": {
+                            "instrument": signal.instrument,
+                            "articles": news_data
+                        }
                     }
-                }
-                
-                # Send to Telegram Service
-                telegram_response = await client.post(
-                    "https://tradingview-telegram-service-production.up.railway.app/send-signal",
-                    json=telegram_data
-                )
-                telegram_response.raise_for_status()
+                    
+                    # Send to Telegram Service
+                    telegram_response = await client.post(
+                        "https://tradingview-telegram-service-production.up.railway.app/send-signal",
+                        json=telegram_data
+                    )
+                    telegram_response.raise_for_status()
+                    logger.info(f"Signal sent to chat_id: {chat_id}")
                 
             logger.info(f"Successfully processed signal")
             
