@@ -244,17 +244,13 @@ async def get_subscribers() -> List[dict]:
 async def process_trading_signal(signal: TradingSignal) -> dict:
     """Process a trading signal and send it to subscribers"""
     try:
-        # Get subscribers
-        subscribers = await get_subscribers()
-        logger.info(f"Found {len(subscribers)} subscribers")
-        
         # Format signal data
         signal_data = {
             "instrument": signal.instrument,
             "direction": signal.action,
-            "entry_price": signal.price,
-            "stop_loss": signal.stoploss,
-            "take_profit": signal.takeprofit,
+            "entry_price": str(signal.price),  # Convert to string to avoid JSON issues
+            "stop_loss": str(signal.stoploss),
+            "take_profit": str(signal.takeprofit),
             "timeframe": signal.timeframe,
             "strategy": signal.strategy
         }
@@ -265,7 +261,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 f"{TELEGRAM_SERVICE}/send-signal",
                 json={
                     "signal_data": signal_data,
-                    "chat_id": "all"  # This will make it send to all subscribers
+                    "chat_id": "all"
                 }
             )
             response.raise_for_status()
