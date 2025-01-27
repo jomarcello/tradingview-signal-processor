@@ -265,7 +265,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 f"{TELEGRAM_SERVICE}/send-signal",
                 json={
                     "signal_data": signal_data,
-                    "chat_id": None  # This will make it send to all subscribers
+                    "chat_id": "all"  # This will make it send to all subscribers
                 }
             )
             response.raise_for_status()
