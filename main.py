@@ -24,16 +24,16 @@ app = FastAPI()
 
 # Constants
 MAX_RETRIES = 3
-REQUEST_TIMEOUT = 60  # seconds
+REQUEST_TIMEOUT = 60  # seconds for all requests
 PROXY_URL = os.getenv("PROXY_URL", "http://proxy.apify.com:8000")
 PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
 # Services URLs
-SIGNAL_AI_SERVICE_URL = "https://tradingview-news-ai-service-production.up.railway.app"
-SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'
+SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app"  # AI service for analysis and formatting
+SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'  # Supabase database for subscribers
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
-TELEGRAM_SERVICE = "https://tradingview-telegram-service-production.up.railway.app"
+TELEGRAM_SERVICE = "https://tradingview-telegram-service-production.up.railway.app"  # Telegram service for sending signals
 
 class TradingSignal(BaseModel):
     instrument: str
