@@ -33,6 +33,7 @@ PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app/format-signal"
 SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
+TELEGRAM_SERVICE = "https://tradingview-telegram-service-production.up.railway.app"
 
 class TradingSignal(BaseModel):
     instrument: str
@@ -225,84 +226,52 @@ async def get_subscribers(instrument: str, timeframe: str) -> List[dict]:
         response.raise_for_status()
         return response.json()
 
+async def get_subscribers() -> List[dict]:
+    """Haal subscribers op uit Supabase."""
+    async with httpx.AsyncClient(timeout=60.0) as client:  # Increased timeout to 60 seconds
+        response = await client.get(
+            f"{SUPABASE_URL}?select=*",
+            headers={
+                'apikey': SUPABASE_KEY,
+                'Authorization': f'Bearer {SUPABASE_KEY}',
+                'Content-Type': 'application/json'
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+
 @app.post("/trading-signal")
 async def process_trading_signal(signal: TradingSignal) -> dict:
-    """Process a trading signal and return relevant news."""
+    """Process a trading signal and send it to subscribers"""
     try:
-        logger.info(f"Processing signal for {signal.instrument}")
+        # Get subscribers
+        subscribers = await get_subscribers()
+        logger.info(f"Found {len(subscribers)} subscribers")
         
-        # Get matching subscribers from Supabase
-        subscribers = await get_subscribers(signal.instrument, signal.timeframe)
-        logger.info(f"Found {len(subscribers)} matching subscribers")
-        
-        # Extract just the chat_ids
-        chat_ids = [sub["chat_id"] for sub in subscribers]
-        
-        # Get news articles
-        news_data = await get_news_with_playwright(signal.instrument)
-        
-        # Prepare data for Signal AI Service
+        # Format signal data
         signal_data = {
             "instrument": signal.instrument,
-            "direction": signal.action,
-            "entry_price": signal.price,
-            "stop_loss": signal.stoploss,
-            "take_profit": signal.takeprofit,
+            "action": signal.action,
+            "price": signal.price,
             "timeframe": signal.timeframe,
-            "strategy": signal.strategy
+            "strategy": signal.strategy,
+            "stoploss": signal.stoploss,
+            "takeprofit": signal.takeprofit
         }
         
-        # Send to Signal AI Service with increased timeout
-        try:
-            logger.info(f"Sending data to Signal AI Service")
-            async with httpx.AsyncClient(timeout=60.0) as client:  # Increased timeout to 60 seconds
-                response = await client.post(SIGNAL_AI_SERVICE_URL, json=signal_data)
-                logger.info(f"Signal AI Service response status: {response.status_code}")
-                logger.info(f"Signal AI Service response content: {response.text}")
-                response.raise_for_status()
-                
-                # Get formatted message
-                formatted_message = response.json()["formatted_message"]
-                
-                # Send to each subscriber
-                for chat_id in chat_ids:
-                    # Now send to Telegram Service
-                    telegram_data = {
-                        "chat_id": chat_id,
-                        "signal_data": signal_data,
-                        "news_data": {
-                            "instrument": signal.instrument,
-                            "articles": news_data
-                        }
-                    }
-                    
-                    # Send to Telegram Service with increased timeout
-                    async with httpx.AsyncClient(timeout=60.0) as telegram_client:
-                        telegram_response = await telegram_client.post(
-                            "https://tradingview-telegram-service-production.up.railway.app/send-signal",
-                            json=telegram_data
-                        )
-                        telegram_response.raise_for_status()
-                        logger.info(f"Signal sent to chat_id: {chat_id}")
-                
-            logger.info(f"Successfully processed signal")
-            
-            return {
-                "status": "success",
-                "message": "Signal processed successfully",
-                "data": {
-                    "signal": signal_data,
-                    "formatted_message": formatted_message,
-                    "chat_ids": chat_ids,
-                    "news": news_data
+        # Send to Telegram Service
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{TELEGRAM_SERVICE}/send-signal",
+                json={
+                    "signal_data": signal_data,
+                    "chat_id": None  # This will make it send to all subscribers
                 }
-            }
+            )
+            response.raise_for_status()
             
-        except Exception as e:
-            logger.error(f"Failed to process signal: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
-            
+        return {"status": "success", "message": "Signal processed successfully"}
+        
     except Exception as e:
-        logger.error(f"Error processing signal: {str(e)}")
-        logger.error(f"Error traceback: {traceback.format_exc()}")
+        logger.error(f"Failed to process signal: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
