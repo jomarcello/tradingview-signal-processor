@@ -251,12 +251,12 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         # Format signal data
         signal_data = {
             "instrument": signal.instrument,
-            "action": signal.action,
-            "price": signal.price,
+            "direction": signal.action,
+            "entry_price": signal.price,
+            "stop_loss": signal.stoploss,
+            "take_profit": signal.takeprofit,
             "timeframe": signal.timeframe,
-            "strategy": signal.strategy,
-            "stoploss": signal.stoploss,
-            "takeprofit": signal.takeprofit
+            "strategy": signal.strategy
         }
         
         # Send to Telegram Service
