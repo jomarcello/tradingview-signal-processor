@@ -244,16 +244,32 @@ async def get_subscribers() -> List[dict]:
 async def process_trading_signal(signal: TradingSignal) -> dict:
     """Process a trading signal and send it to subscribers"""
     try:
-        # Format signal data
+        # Format signal data for AI Service
         signal_data = {
             "instrument": signal.instrument,
             "direction": signal.action,
-            "entry_price": str(signal.price),  # Convert to string to avoid JSON issues
+            "entry_price": str(signal.price),
             "stop_loss": str(signal.stoploss),
             "take_profit": str(signal.takeprofit),
             "timeframe": signal.timeframe,
             "strategy": signal.strategy
         }
+        
+        # Get AI formatted message
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{SIGNAL_AI_SERVICE_URL}/format-signal",
+                    json=signal_data
+                )
+                response.raise_for_status()
+                ai_response = response.json()
+                signal_data["formatted_message"] = ai_response["formatted_message"]
+                signal_data["ai_verdict"] = ai_response.get("ai_verdict", "")
+                logger.info("Successfully got AI formatted message")
+        except Exception as e:
+            logger.error(f"Error getting AI formatted message: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error getting AI formatted message: {str(e)}")
         
         # Send to Telegram Service
         async with httpx.AsyncClient(timeout=30.0) as client:
