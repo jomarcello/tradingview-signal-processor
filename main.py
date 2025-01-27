@@ -244,6 +244,8 @@ async def get_subscribers() -> List[dict]:
 async def process_trading_signal(signal: TradingSignal) -> dict:
     """Process a trading signal and send it to subscribers"""
     try:
+        logger.info(f"Processing signal for {signal.instrument}")
+        
         # Format signal data for AI Service
         signal_data = {
             "instrument": signal.instrument,
@@ -256,50 +258,59 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             "timestamp": signal.timestamp
         }
         
-        # Get AI formatted message
+        # Step 1: Get AI analysis
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                # First get AI verdict
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{SIGNAL_AI_SERVICE_URL}/analyze-signal",
                     json=signal_data
                 )
                 response.raise_for_status()
-                ai_verdict = response.json()
-                signal_data["ai_verdict"] = ai_verdict.get("verdict", "")
+                analysis_result = response.json()
+                logger.info(f"Got AI analysis: {analysis_result}")
                 
-                # Then get formatted message
+                # Add AI verdict to signal data
+                signal_data["ai_verdict"] = analysis_result["verdict"]
+                signal_data["risk_reward_ratio"] = analysis_result["risk_reward_ratio"]
+                
+        except Exception as e:
+            logger.error(f"Error getting AI analysis: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error getting AI analysis: {str(e)}")
+            
+        # Step 2: Get formatted message
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{SIGNAL_AI_SERVICE_URL}/format-signal",
                     json=signal_data
                 )
                 response.raise_for_status()
-                format_response = response.json()
-                signal_data["formatted_message"] = format_response.get("formatted_message", "")
+                format_result = response.json()
+                logger.info("Got formatted message from AI service")
                 
-                logger.info("Successfully got AI analysis and formatted message")
+                # Add formatted message to signal data
+                signal_data["formatted_message"] = format_result["formatted_message"]
+                
         except Exception as e:
-            logger.error(f"Error getting AI analysis: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error getting AI analysis: {str(e)}")
-        
-        # Send to Telegram Service
+            logger.error(f"Error formatting signal: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error formatting signal: {str(e)}")
+            
+        # Step 3: Send to Telegram service
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{TELEGRAM_SERVICE}/send-signal",
-                    json={
-                        "signal_data": signal_data,
-                        "chat_id": "all"
-                    }
+                    json={"signal_data": signal_data, "chat_id": "all"}
                 )
                 response.raise_for_status()
-                logger.info("Successfully sent signal to Telegram service")
+                logger.info("Signal sent to Telegram service")
+                
         except Exception as e:
             logger.error(f"Error sending to Telegram: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error sending to Telegram: {str(e)}")
             
-        return {"status": "success", "message": "Signal processed successfully"}
+        return {"status": "success", "message": "Signal processed and sent successfully"}
         
     except Exception as e:
-        logger.error(f"Failed to process signal: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to process signal: {str(e)}")
+        logger.error(f"Error processing signal: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing signal: {str(e)}")
