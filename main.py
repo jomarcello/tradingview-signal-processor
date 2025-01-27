@@ -314,3 +314,23 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
     except Exception as e:
         logger.error(f"Error processing signal: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing signal: {str(e)}")
+
+@app.get("/get-news")
+async def get_news(instrument: str):
+    """Get news articles for a specific instrument from TradingView"""
+    try:
+        logger.info(f"Getting news for {instrument}")
+        articles = await get_news_with_playwright(instrument)
+        
+        if not articles:
+            logger.warning(f"No news found for {instrument}")
+            return {"status": "error", "message": "No news found"}
+            
+        return {
+            "status": "success",
+            "articles": articles
+        }
+            
+    except Exception as e:
+        logger.error(f"Error getting news: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
