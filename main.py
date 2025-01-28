@@ -298,7 +298,21 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             logger.error(f"Error sending to subscriber matcher: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error getting subscribers: {str(e)}")
             
-        # Step 3: Get AI analysis
+        # Step 3: Send to chart service
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"{CHART_SERVICE_URL}/capture-chart",
+                    json=signal_data
+                )
+                response.raise_for_status()
+                logger.info("Signal sent to chart service")
+                
+        except Exception as e:
+            logger.error(f"Error sending to chart service: {str(e)}")
+            # Continue even if chart service fails
+            
+        # Step 4: Get AI analysis
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
@@ -317,7 +331,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             logger.error(f"Error getting AI analysis: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error getting AI analysis: {str(e)}")
             
-        # Step 4: Get formatted message
+        # Step 5: Get formatted message
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
@@ -335,7 +349,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             logger.error(f"Error formatting signal: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error formatting signal: {str(e)}")
             
-        # Step 5: Send to Telegram service
+        # Step 6: Send to Telegram service
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
