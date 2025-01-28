@@ -288,12 +288,16 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                     json=signal_data
                 )
                 response.raise_for_status()
-                logger.info("Signal sent to subscriber matcher")
+                subscriber_result = response.json()
+                logger.info("Got subscriber matches")
+                
+                # Add chat IDs to signal data
+                signal_data["chat_ids"] = subscriber_result["chat_ids"]
                 
         except Exception as e:
             logger.error(f"Error sending to subscriber matcher: {str(e)}")
-            # Continue even if subscriber matching fails
-        
+            raise HTTPException(status_code=500, detail=f"Error getting subscribers: {str(e)}")
+            
         # Step 3: Get AI analysis
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
@@ -336,7 +340,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{TELEGRAM_SERVICE}/send-signal",
-                    json={"signal_data": signal_data, "chat_id": "all"}
+                    json={"signal_data": signal_data, "chat_ids": signal_data["chat_ids"]}
                 )
                 response.raise_for_status()
                 logger.info("Signal sent to Telegram service")
