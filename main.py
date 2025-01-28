@@ -305,12 +305,19 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         # Step 3: Send to chart service
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                response = await client.post(
-                    f"{CHART_SERVICE_URL}/capture-chart",
-                    json=signal_data
+                response = await client.get(
+                    f"{CHART_SERVICE_URL}/chart",
+                    params={
+                        "symbol": signal.instrument,
+                        "interval": signal.timeframe,
+                        "theme": "dark"
+                    }
                 )
                 response.raise_for_status()
-                logger.info("Signal sent to chart service")
+                logger.info("Got chart from chart service")
+                
+                # Save chart URL
+                signal_data["chart_url"] = "chart_url_placeholder"  # We'll implement chart storage later
                 
         except Exception as e:
             logger.error(f"Error sending to chart service: {str(e)}")
