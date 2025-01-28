@@ -285,17 +285,21 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
                     f"{SUBSCRIBER_MATCHER_URL}/match-subscribers",
-                    json=signal_data
+                    json={
+                        "instrument": signal.instrument,
+                        "timeframe": signal.timeframe
+                    }
                 )
                 response.raise_for_status()
                 subscriber_result = response.json()
-                logger.info("Got subscriber matches")
+                logger.info(f"Got subscriber matches: {subscriber_result}")
                 
                 # Add chat IDs to signal data
                 signal_data["chat_ids"] = subscriber_result["chat_ids"]
                 
         except Exception as e:
             logger.error(f"Error sending to subscriber matcher: {str(e)}")
+            logger.error(f"Full error traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Error getting subscribers: {str(e)}")
             
         # Step 3: Send to chart service
