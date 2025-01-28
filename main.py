@@ -262,7 +262,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
-                    f"{SIGNAL_AI_SERVICE_URL}/analyze-signal",
+                    f"{SIGNAL_AI_SERVICE_URL}/analyze_signal",
                     json=signal_data
                 )
                 response.raise_for_status()
@@ -281,7 +281,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
-                    f"{SIGNAL_AI_SERVICE_URL}/format-signal",
+                    f"{SIGNAL_AI_SERVICE_URL}/format_signal",
                     json=signal_data
                 )
                 response.raise_for_status()
