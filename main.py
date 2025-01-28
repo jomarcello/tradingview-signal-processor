@@ -31,6 +31,8 @@ PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
 # Services URLs
 SIGNAL_AI_SERVICE_URL = "https://tradingview-signal-ai-service-production.up.railway.app:8080"  # AI service for analysis and formatting
+NEWS_AI_SERVICE_URL = "https://tradingview-news-ai-service-production.up.railway.app:8080"  # AI service for news analysis
+SUBSCRIBER_MATCHER_URL = "https://sup-abase-subscriber-matcher-production.up.railway.app"  # Subscriber matcher service
 SUPABASE_URL = 'https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers'  # Supabase database for subscribers
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV0aWdrZ2pjeXFucmhwbmR6cWhzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNjMyMzA1NiwiZXhwIjoyMDUxODk5MDU2fQ.8JovzmGQofC4oC2016P7aa6FZQESF3UNSjUTruIYWbg'
 TELEGRAM_SERVICE = "https://tradingview-telegram-service-production.up.railway.app"  # Telegram service for sending signals
@@ -247,7 +249,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
     try:
         logger.info(f"Processing signal for {signal.instrument}")
         
-        # Format signal data for AI Service
+        # Format signal data
         signal_data = {
             "instrument": signal.instrument,
             "direction": signal.action,
@@ -259,11 +261,44 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             "timestamp": signal.timestamp
         }
         
-        # Step 1: Get AI analysis
+        # Step 1: Get news articles
+        try:
+            articles = await get_news_with_playwright(signal.instrument)
+            logger.info(f"Got {len(articles)} news articles")
+            
+            # Send articles to news AI service
+            if articles:
+                async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                    response = await client.post(
+                        f"{NEWS_AI_SERVICE_URL}/analyze-news",
+                        json={"instrument": signal.instrument, "articles": articles}
+                    )
+                    response.raise_for_status()
+                    logger.info("Sent articles to news AI service")
+                    
+        except Exception as e:
+            logger.error(f"Error processing news: {str(e)}")
+            # Continue even if news processing fails
+        
+        # Step 2: Send to subscriber matcher
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
-                    f"{SIGNAL_AI_SERVICE_URL}/analyze_signal",
+                    f"{SUBSCRIBER_MATCHER_URL}/match-subscribers",
+                    json=signal_data
+                )
+                response.raise_for_status()
+                logger.info("Signal sent to subscriber matcher")
+                
+        except Exception as e:
+            logger.error(f"Error sending to subscriber matcher: {str(e)}")
+            # Continue even if subscriber matching fails
+        
+        # Step 3: Get AI analysis
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"{SIGNAL_AI_SERVICE_URL}/analyze-signal",
                     json=signal_data
                 )
                 response.raise_for_status()
@@ -278,11 +313,11 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             logger.error(f"Error getting AI analysis: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error getting AI analysis: {str(e)}")
             
-        # Step 2: Get formatted message
+        # Step 4: Get formatted message
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
-                    f"{SIGNAL_AI_SERVICE_URL}/format_signal",
+                    f"{SIGNAL_AI_SERVICE_URL}/format-signal",
                     json=signal_data
                 )
                 response.raise_for_status()
@@ -296,7 +331,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
             logger.error(f"Error formatting signal: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error formatting signal: {str(e)}")
             
-        # Step 3: Send to Telegram service
+        # Step 5: Send to Telegram service
         try:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
                 response = await client.post(
