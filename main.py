@@ -306,8 +306,8 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 logger.info(f"Got AI analysis: {analysis_result}")
                 
                 # Add AI verdict to signal data
-                signal_data["ai_verdict"] = analysis_result["verdict"]
-                signal_data["risk_reward_ratio"] = analysis_result["risk_reward_ratio"]
+                signal_data["ai-verdict"] = analysis_result["verdict"]
+                signal_data["risk-reward-ratio"] = analysis_result["risk-reward-ratio"]
                 
         except Exception as e:
             logger.error(f"Error getting AI analysis: {str(e)}")
@@ -325,7 +325,7 @@ async def process_trading_signal(signal: TradingSignal) -> dict:
                 logger.info("Got formatted message from AI service")
                 
                 # Add formatted message to signal data
-                signal_data["formatted_message"] = format_result["formatted_message"]
+                signal_data["formatted-message"] = format_result["formatted-message"]
                 
         except Exception as e:
             logger.error(f"Error formatting signal: {str(e)}")
