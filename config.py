@@ -1,45 +1,49 @@
 import os
-from typing import Dict, Any
+import logging
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
-from pydantic import HttpUrl
+from pydantic import HttpUrl, Field
 from pydantic_settings import BaseSettings
 
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 class Settings(BaseSettings):
     # Service URLs
-    SIGNAL_AI_SERVICE_URL: HttpUrl = os.getenv("SIGNAL_AI_SERVICE_URL", "https://tradingview-signal-ai-service-production.up.railway.app")
-    NEWS_AI_SERVICE_URL: HttpUrl = os.getenv("NEWS_AI_SERVICE_URL", "https://tradingview-news-ai-service-production.up.railway.app")
-    SUBSCRIBER_MATCHER_URL: HttpUrl = os.getenv("SUBSCRIBER_MATCHER_URL", "https://sup-abase-subscriber-matcher-production.up.railway.app")
-    TELEGRAM_SERVICE_URL: HttpUrl = os.getenv("TELEGRAM_SERVICE_URL", "https://tradingview-telegram-service-production.up.railway.app")
-    CHART_SERVICE_URL: HttpUrl = os.getenv("CHART_SERVICE_URL", "https://tradingview-chart-service-production.up.railway.app")
+    SIGNAL_AI_SERVICE_URL: str = Field("https://tradingview-signal-ai-service-production.up.railway.app")
+    NEWS_AI_SERVICE_URL: str = Field("https://tradingview-news-ai-service-production.up.railway.app")
+    SUBSCRIBER_MATCHER_URL: str = Field("https://sup-abase-subscriber-matcher-production.up.railway.app")
+    TELEGRAM_SERVICE_URL: str = Field("https://tradingview-telegram-service-production.up.railway.app")
+    CHART_SERVICE_URL: str = Field("https://tradingview-chart-service-production.up.railway.app")
     
     # Supabase Configuration
-    SUPABASE_URL: HttpUrl = os.getenv("SUPABASE_URL", "https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_URL: str = Field("https://utigkgjcyqnrhpndzqhs.supabase.co/rest/v1/subscribers")
+    SUPABASE_KEY: Optional[str] = Field(None)
     
     # Proxy Configuration
-    PROXY_URL: str = os.getenv("PROXY_URL", "http://proxy.apify.com:8000")
-    PROXY_USERNAME: str = os.getenv("PROXY_USERNAME", "")
-    PROXY_PASSWORD: str = os.getenv("PROXY_PASSWORD", "")
+    PROXY_URL: Optional[str] = Field(None)
+    PROXY_USERNAME: Optional[str] = Field(None)
+    PROXY_PASSWORD: Optional[str] = Field(None)
     
     # Request Configuration
-    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
-    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "60"))
+    MAX_RETRIES: int = Field(3)
+    REQUEST_TIMEOUT: int = Field(60)
     
     # Monitoring Configuration
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    ENABLE_MONITORING: bool = os.getenv("ENABLE_MONITORING", "true").lower() == "true"
+    LOG_LEVEL: str = Field("INFO")
+    ENABLE_MONITORING: bool = Field(True)
     
     # News Scraping Configuration
-    MAX_NEWS_ARTICLES: int = int(os.getenv("MAX_NEWS_ARTICLES", "3"))
-    WANTED_NEWS_PROVIDERS: set = {
+    MAX_NEWS_ARTICLES: int = Field(3)
+    WANTED_NEWS_PROVIDERS: set = Field(default_factory=lambda: {
         'reuters',
         'forexlive',
         'dow jones newswires',
         'trading economics'
-    }
+    })
     
     class Config:
         case_sensitive = True
@@ -61,21 +65,27 @@ def get_service_headers() -> Dict[str, str]:
 
 def get_supabase_headers() -> Dict[str, str]:
     """Get headers for Supabase requests"""
-    return {
-        'apikey': settings.SUPABASE_KEY,
-        'Authorization': f'Bearer {settings.SUPABASE_KEY}',
+    headers = {
         'Content-Type': 'application/json'
     }
+    
+    if settings.SUPABASE_KEY:
+        headers.update({
+            'apikey': settings.SUPABASE_KEY,
+            'Authorization': f'Bearer {settings.SUPABASE_KEY}'
+        })
+    
+    return headers
 
 def validate_settings() -> None:
-    """Validate required settings"""
+    """Log warnings for missing optional settings"""
     missing = []
     
     if not settings.SUPABASE_KEY:
-        missing.append("SUPABASE_KEY")
-        
-    if missing:
-        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        logger.warning("SUPABASE_KEY is not set. Some features may be limited.")
+    
+    if not settings.PROXY_URL or not settings.PROXY_USERNAME or not settings.PROXY_PASSWORD:
+        logger.warning("Proxy settings are not complete. Running without proxy support.")
 
 # Validate settings on import
 validate_settings()
