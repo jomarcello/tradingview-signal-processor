@@ -25,9 +25,7 @@ class NewsScraper:
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
-                    '--disable-extensions',
-                    '--disable-software-rasterizer',
-                    '--js-flags=--max-old-space-size=500'
+                    '--disable-extensions'
                 ]
             )
             logger.info("Browser initialized successfully")
@@ -56,23 +54,74 @@ class NewsScraper:
             logger.error(f"Login failed: {str(e)}")
             return False
 
-    async def wait_for_news_content(self) -> bool:
-        """Wait for news content to load with multiple selectors"""
-        selectors = [
-            '.news-feed-item',  # Main news feed items
-            '[data-name="news-headline-title"]',  # News headlines
-            '.title-HY0D0owe'  # Title class
-        ]
-        
-        for selector in selectors:
+    async def get_article_content(self, headline_element) -> Optional[Dict[str, str]]:
+        """Get full article content by navigating to the article page"""
+        try:
+            # Get the article link
+            link = await headline_element.evaluate('(element) => element.closest("a").href')
+            if not link:
+                return None
+
+            # Get initial metadata before navigation
+            title = await headline_element.text_content()
+            title = title.strip()
+
+            # Get provider
+            provider = "TradingView"
+            provider_element = await headline_element.evaluate('(element) => element.closest("article").querySelector(".provider-TUPxzdRV")')
+            if provider_element:
+                provider = provider_element['textContent'].strip()
+
+            # Get date
+            date = datetime.now(pytz.UTC).isoformat()
+            date_element = await headline_element.evaluate('(element) => element.closest("article").querySelector(".date-TUPxzdRV")')
+            if date_element:
+                date = date_element['textContent'].strip()
+
+            # Navigate to article
+            await self.page.goto(link, timeout=30000)
+            await asyncio.sleep(2)
+
+            # Check for login wall
+            login_button = await self.page.query_selector('button[type="submit"]')
+            if login_button:
+                await self.login()
+                await asyncio.sleep(2)
+
+            # Get full article content
+            content = title  # Default to title if we can't get content
+            body_element = await self.page.query_selector('.body-KX2tCBZq')
+            if body_element:
+                paragraphs = await body_element.query_selector_all('p')
+                content_parts = []
+                for p in paragraphs:
+                    text = await p.text_content()
+                    if text:
+                        content_parts.append(text.strip())
+                if content_parts:
+                    content = '\n\n'.join(content_parts)
+
+            # Go back to news list
+            await self.page.goto(f"https://www.tradingview.com/symbols/{self.current_instrument}/news/", timeout=30000)
+            await self.page.wait_for_selector('.news-headline-card', timeout=10000)
+
+            return {
+                'title': title,
+                'content': content,
+                'provider': provider,
+                'date': date,
+                'url': link
+            }
+
+        except Exception as e:
+            logger.warning(f"Error getting article content: {str(e)}")
+            # Try to go back to news list
             try:
-                await self.page.wait_for_selector(selector, timeout=10000)
-                logger.info(f"Found news content with selector: {selector}")
-                return True
+                await self.page.goto(f"https://www.tradingview.com/symbols/{self.current_instrument}/news/", timeout=30000)
+                await self.page.wait_for_selector('.news-headline-card', timeout=10000)
             except Exception:
-                continue
-                
-        return False
+                pass
+            return None
 
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
         """Get news articles from TradingView"""
@@ -80,32 +129,20 @@ class NewsScraper:
             if not self.browser:
                 await self.initialize()
 
+            self.current_instrument = instrument
             logger.info(f"Getting news for {instrument}")
             
-            # Create new page with custom viewport
-            self.page = await self.browser.new_page(
-                viewport={'width': 1920, 'height': 1080}
-            )
+            # Create new page
+            self.page = await self.browser.new_page()
             
-            # Set headers to avoid detection
-            await self.page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9'
-            })
-
             # Navigate to TradingView news page
             url = f"https://www.tradingview.com/symbols/{instrument}/news/"
             try:
-                await self.page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                await self.page.goto(url, timeout=30000)
                 logger.info(f"Navigated to {url}")
                 
-                # Wait for all resources to load
-                await self.page.wait_for_load_state('networkidle')
-                
                 # Wait for news content
-                if not await self.wait_for_news_content():
-                    logger.error("Could not find news content")
-                    return []
+                await self.page.wait_for_selector('.news-headline-card', timeout=10000)
                 
             except Exception as e:
                 logger.error(f"Error loading page: {str(e)}")
@@ -114,76 +151,22 @@ class NewsScraper:
             articles = []
             articles_found = 0
 
-            # Get all news items
-            news_items = []
-            for selector in ['.news-feed-item', '[data-name="news-headline-title"]', '.title-HY0D0owe']:
-                items = await self.page.query_selector_all(selector)
-                if items:
-                    news_items = items
-                    logger.info(f"Found {len(items)} news items with selector: {selector}")
-                    break
-
-            for item in news_items:
+            # Get all headlines
+            headlines = await self.page.query_selector_all('[data-name="news-headline-title"]')
+            
+            for headline in headlines:
                 if articles_found >= max_articles:
                     break
 
                 try:
-                    # Get title
-                    title = await item.text_content()
-                    title = title.strip()
-                    if not title:
-                        continue
-
-                    # Click the news item
-                    await item.click()
-                    await self.page.wait_for_load_state('networkidle')
-                    await asyncio.sleep(2)
-
-                    # Check for login wall
-                    login_button = await self.page.query_selector('button[type="submit"]')
-                    if login_button:
-                        await self.login()
-                        await asyncio.sleep(2)
-
-                    # Get article content
-                    content = title  # Default to title
-                    body_element = await self.page.query_selector('.body-KX2tCBZq')
-                    if body_element:
-                        content = await body_element.text_content()
-                        content = content.strip()
-
-                    # Get current URL
-                    url = self.page.url
-
-                    # Get date and provider if available
-                    date = datetime.now(pytz.UTC).isoformat()
-                    provider = "TradingView"
-
-                    articles.append({
-                        'title': title,
-                        'content': content,
-                        'provider': provider,
-                        'date': date,
-                        'url': url
-                    })
-                    
-                    articles_found += 1
-                    logger.info(f"Found article: {title}")
-
-                    # Go back to news list
-                    await self.page.go_back()
-                    await self.page.wait_for_load_state('networkidle')
-                    await self.wait_for_news_content()
+                    article_data = await self.get_article_content(headline)
+                    if article_data:
+                        articles.append(article_data)
+                        articles_found += 1
+                        logger.info(f"Found article: {article_data['title']}")
 
                 except Exception as e:
-                    logger.warning(f"Error processing news item: {str(e)}")
-                    # Try to go back if we're stuck
-                    try:
-                        await self.page.go_back()
-                        await self.page.wait_for_load_state('networkidle')
-                        await self.wait_for_news_content()
-                    except Exception:
-                        pass
+                    logger.warning(f"Error processing headline: {str(e)}")
                     continue
 
             logger.info(f"Found {len(articles)} relevant articles")
