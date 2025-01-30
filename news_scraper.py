@@ -38,27 +38,6 @@ class NewsScraper:
     async def login(self) -> bool:
         """Login to TradingView when encountering login wall"""
         try:
-            # Check if we're on a login page or hit a login wall
-            login_selectors = [
-                'input[name="username"]',
-                '.tv-signin-dialog',
-                '#signin-form'
-            ]
-            
-            login_needed = False
-            for selector in login_selectors:
-                try:
-                    await self.page.wait_for_selector(selector, timeout=3000)
-                    login_needed = True
-                    break
-                except Exception:
-                    continue
-            
-            if not login_needed:
-                return True
-
-            logger.info("Login wall encountered, attempting to log in")
-            
             # Fill in credentials
             await self.page.fill('input[name="username"]', 'contact@jomarcello.com')
             await self.page.fill('input[name="password"]', 'JmT!102710')
@@ -68,7 +47,7 @@ class NewsScraper:
             
             # Wait for login to complete
             await self.page.wait_for_load_state('networkidle')
-            await asyncio.sleep(2)  # Give extra time for session to establish
+            await asyncio.sleep(2)
             
             logger.info("Successfully logged in")
             return True
@@ -80,29 +59,13 @@ class NewsScraper:
     async def get_article_content(self, article_element) -> Optional[Dict[str, str]]:
         """Extract article content by clicking through to full article"""
         try:
-            # Get title from the article element
-            title = ""
-            title_selectors = [
-                '.apply-overflow-tooltip[data-overflow-tooltip-text]',
-                '[data-name="news-headline-title"]',
-                '.title-HY0D0owe'
-            ]
-            
-            for selector in title_selectors:
-                try:
-                    title_element = await article_element.query_selector(selector)
-                    if title_element:
-                        # Try to get title from tooltip attribute first
-                        title = await title_element.get_attribute('data-overflow-tooltip-text')
-                        if not title:
-                            title = await title_element.text_content()
-                        title = title.strip()
-                        break
-                except Exception:
-                    continue
-
-            if not title:
+            # Get title
+            title_element = await article_element.query_selector('.title-HY0D0owe')
+            if not title_element:
                 return None
+            
+            title = await title_element.text_content()
+            title = title.strip()
 
             # Get provider and date
             provider = "TradingView"
@@ -117,62 +80,46 @@ class NewsScraper:
                 date = await date_element.text_content()
                 date = date.strip()
 
-            # Try to click the article title to get full content
-            try:
-                await title_element.click()
-                await self.page.wait_for_load_state('domcontentloaded')
+            # Click the title to open article
+            await title_element.click()
+            await asyncio.sleep(2)
+
+            # Check if we need to login
+            login_button = await self.page.query_selector('button[type="submit"]')
+            if login_button:
+                await self.login()
                 await asyncio.sleep(2)
 
-                # Check for login wall
-                await self.login()
+            # Get article content
+            content = title  # Default to title
+            body_element = await self.page.query_selector('.body-KX2tCBZq')
+            if body_element:
+                content = await body_element.text_content()
+                content = content.strip()
 
-                # Try to get full content
-                content = title  # Default to title
-                body_element = await self.page.wait_for_selector('.body-KX2tCBZq', timeout=5000)
-                if body_element:
-                    paragraphs = await body_element.query_selector_all('p')
-                    content_parts = []
-                    for p in paragraphs:
-                        text = await p.text_content()
-                        if text:
-                            content_parts.append(text.strip())
-                    if content_parts:
-                        content = '\n\n'.join(content_parts)
+            # Get current URL
+            url = self.page.url
 
-                # Get current URL for reference
-                url = self.page.url
+            # Go back to news list
+            await self.page.go_back()
+            await self.page.wait_for_selector('article')
 
-                # Go back to news list
-                await self.page.go_back()
-                await self.page.wait_for_selector('article', timeout=10000)
-
-                return {
-                    'title': title,
-                    'content': content,
-                    'provider': provider,
-                    'date': date,
-                    'url': url
-                }
-
-            except Exception as e:
-                logger.warning(f"Could not get full content for {title}: {str(e)}")
-                # Try to go back if we're stuck on an article
-                try:
-                    await self.page.go_back()
-                    await self.page.wait_for_selector('article', timeout=10000)
-                except Exception:
-                    pass
-                
-                # Return article with just title/summary
-                return {
-                    'title': title,
-                    'content': title,
-                    'provider': provider,
-                    'date': date
-                }
+            return {
+                'title': title,
+                'content': content,
+                'provider': provider,
+                'date': date,
+                'url': url
+            }
 
         except Exception as e:
             logger.warning(f"Error processing article: {str(e)}")
+            # Try to go back if we're stuck
+            try:
+                await self.page.go_back()
+                await self.page.wait_for_selector('article')
+            except Exception:
+                pass
             return None
 
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
@@ -202,7 +149,7 @@ class NewsScraper:
                 
                 # Wait for news content
                 await self.page.wait_for_selector('article', timeout=60000)
-                await asyncio.sleep(2)  # Give JavaScript time to execute
+                await asyncio.sleep(2)
                 
             except Exception as e:
                 logger.error(f"Error loading page: {str(e)}")
