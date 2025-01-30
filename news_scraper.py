@@ -35,8 +35,81 @@ class NewsScraper:
             logger.error(f"Failed to initialize browser: {str(e)}")
             raise
 
+    async def login(self) -> bool:
+        """Login to TradingView"""
+        try:
+            # Go to login page
+            await self.page.goto('https://www.tradingview.com/sign-in/', timeout=60000)
+            logger.info("Navigated to login page")
+            
+            # Wait for email input and enter credentials
+            await self.page.wait_for_selector('input[name="username"]')
+            await self.page.fill('input[name="username"]', 'contact@jomarcello.com')
+            await self.page.fill('input[name="password"]', 'JmT!102710')
+            
+            # Click sign in button
+            await self.page.click('button[type="submit"]')
+            
+            # Wait for successful login
+            await self.page.wait_for_selector('.tv-header__user-menu-button')
+            logger.info("Successfully logged in")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Login failed: {str(e)}")
+            return False
+
+    async def get_article_content(self, article_element) -> Optional[Dict[str, str]]:
+        """Extract full article content and metadata"""
+        try:
+            # Get title
+            title_element = await article_element.query_selector('[data-name="news-headline-title"]')
+            if not title_element:
+                return None
+            
+            title = await title_element.text_content()
+            title = title.strip()
+
+            # Get full content from the article body
+            content = title  # Default to title if no body found
+            body_element = await article_element.query_selector('.body-KX2tCBZq')
+            if body_element:
+                # Get all text content, including paragraphs
+                paragraphs = await body_element.query_selector_all('p')
+                content_parts = []
+                for p in paragraphs:
+                    text = await p.text_content()
+                    if text:
+                        content_parts.append(text.strip())
+                content = '\n\n'.join(content_parts)
+
+            # Get date
+            date = datetime.now(pytz.UTC).isoformat()
+            date_element = await article_element.query_selector('.date-TUPxzdRV')
+            if date_element:
+                date = await date_element.text_content()
+                date = date.strip()
+
+            # Get provider
+            provider = "TradingView"
+            provider_element = await article_element.query_selector('.provider-TUPxzdRV')
+            if provider_element:
+                provider = await provider_element.text_content()
+                provider = provider.strip()
+
+            return {
+                'title': title,
+                'content': content,
+                'provider': provider,
+                'date': date
+            }
+
+        except Exception as e:
+            logger.warning(f"Error extracting article content: {str(e)}")
+            return None
+
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
-        """Get news articles from ForexFactory market page"""
+        """Get news articles from TradingView"""
         try:
             if not self.browser:
                 await self.initialize()
@@ -54,18 +127,18 @@ class NewsScraper:
                 'Accept-Language': 'en-US,en;q=0.9'
             })
 
-            # Format instrument for URL (e.g., EURUSD -> eurusd)
-            instrument_lower = instrument.lower()
+            # Login first
+            if not await self.login():
+                logger.error("Failed to login, proceeding without authentication")
 
-            # Navigate to ForexFactory market page for the specific instrument
-            url = f"https://www.forexfactory.com/news"
+            # Navigate to TradingView news page
+            url = f"https://www.tradingview.com/symbols/{instrument}/news/"
             try:
-                # Navigate and wait for network idle
-                await self.page.goto(url, wait_until='networkidle', timeout=60000)
+                await self.page.goto(url, timeout=60000, wait_until='domcontentloaded')
                 logger.info(f"Navigated to {url}")
                 
-                # Wait for any content to load
-                await self.page.wait_for_load_state('domcontentloaded')
+                # Wait for news content
+                await self.page.wait_for_selector('article', timeout=60000)
                 await asyncio.sleep(2)  # Give JavaScript time to execute
                 
             except Exception as e:
@@ -75,43 +148,22 @@ class NewsScraper:
             articles = []
             articles_found = 0
 
-            # Find all news links
-            news_links = await self.page.query_selector_all("a[href^='/news/']")
+            # Get all article elements
+            article_elements = await self.page.query_selector_all('article')
             
-            for link in news_links:
+            for article in article_elements:
                 if articles_found >= max_articles:
                     break
 
                 try:
-                    # Get title and content from the link
-                    title = await link.text_content()
-                    title = title.strip()
-                    
-                    # Get full content from title attribute
-                    content = await link.get_attribute("title")
-                    if not content:
-                        content = title
-                    
-                    # Get href for the article ID
-                    href = await link.get_attribute("href")
-                    article_id = href.split("-")[0].split("/")[-1] if href else None
-                    
-                    # Get timestamp (we'll use current time as FF doesn't show time in the link)
-                    time_str = datetime.now(pytz.UTC).isoformat()
-
-                    articles.append({
-                        'title': title,
-                        'content': content,
-                        'source': 'ForexFactory',
-                        'date': time_str,
-                        'article_id': article_id
-                    })
-                    
-                    articles_found += 1
-                    logger.info(f"Found article: {title}")
+                    article_data = await self.get_article_content(article)
+                    if article_data:
+                        articles.append(article_data)
+                        articles_found += 1
+                        logger.info(f"Found article: {article_data['title']}")
 
                 except Exception as e:
-                    logger.warning(f"Error processing news link: {str(e)}")
+                    logger.warning(f"Error processing article: {str(e)}")
                     continue
 
             logger.info(f"Found {len(articles)} relevant articles")
