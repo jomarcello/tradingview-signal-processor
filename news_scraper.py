@@ -80,15 +80,31 @@ class NewsScraper:
     async def get_article_content(self, article_element) -> Optional[Dict[str, str]]:
         """Extract article content by clicking through to full article"""
         try:
-            # Get initial metadata
-            title_element = await article_element.query_selector('[data-name="news-headline-title"]')
-            if not title_element:
-                return None
+            # Get title from the article element
+            title = ""
+            title_selectors = [
+                '.apply-overflow-tooltip[data-overflow-tooltip-text]',
+                '[data-name="news-headline-title"]',
+                '.title-HY0D0owe'
+            ]
             
-            title = await title_element.text_content()
-            title = title.strip()
+            for selector in title_selectors:
+                try:
+                    title_element = await article_element.query_selector(selector)
+                    if title_element:
+                        # Try to get title from tooltip attribute first
+                        title = await title_element.get_attribute('data-overflow-tooltip-text')
+                        if not title:
+                            title = await title_element.text_content()
+                        title = title.strip()
+                        break
+                except Exception:
+                    continue
 
-            # Get provider and date before clicking
+            if not title:
+                return None
+
+            # Get provider and date
             provider = "TradingView"
             provider_element = await article_element.query_selector('.provider-TUPxzdRV')
             if provider_element:
@@ -101,66 +117,62 @@ class NewsScraper:
                 date = await date_element.text_content()
                 date = date.strip()
 
-            # Find and click the article link
-            link = await article_element.query_selector('a[href^="/news/"]')
-            if not link:
-                logger.warning(f"No link found for article: {title}")
-                return None
-
-            # Get the href
-            href = await link.get_attribute('href')
-            if not href:
-                return None
-
-            # Click the link and wait for navigation
-            await link.click()
-            await self.page.wait_for_load_state('domcontentloaded')
-            await asyncio.sleep(2)  # Give JavaScript time to execute
-
-            # Check if we need to login
-            await self.login()
-
-            # Wait for article content
+            # Try to click the article title to get full content
             try:
-                await self.page.wait_for_selector('.body-KX2tCBZq', timeout=10000)
-            except Exception:
-                logger.warning(f"Could not find article body for: {title}")
-                await self.page.go_back()
-                return None
+                await title_element.click()
+                await self.page.wait_for_load_state('domcontentloaded')
+                await asyncio.sleep(2)
 
-            # Get full content
-            content = title  # Default to title if no body found
-            body_element = await self.page.query_selector('.body-KX2tCBZq')
-            if body_element:
-                # Get all text content, including paragraphs
-                paragraphs = await body_element.query_selector_all('p')
-                content_parts = []
-                for p in paragraphs:
-                    text = await p.text_content()
-                    if text:
-                        content_parts.append(text.strip())
-                content = '\n\n'.join(content_parts)
+                # Check for login wall
+                await self.login()
 
-            # Go back to the news list
-            await self.page.go_back()
-            await self.page.wait_for_selector('article', timeout=10000)
+                # Try to get full content
+                content = title  # Default to title
+                body_element = await self.page.wait_for_selector('.body-KX2tCBZq', timeout=5000)
+                if body_element:
+                    paragraphs = await body_element.query_selector_all('p')
+                    content_parts = []
+                    for p in paragraphs:
+                        text = await p.text_content()
+                        if text:
+                            content_parts.append(text.strip())
+                    if content_parts:
+                        content = '\n\n'.join(content_parts)
 
-            return {
-                'title': title,
-                'content': content,
-                'provider': provider,
-                'date': date,
-                'url': f"https://www.tradingview.com{href}"
-            }
+                # Get current URL for reference
+                url = self.page.url
 
-        except Exception as e:
-            logger.warning(f"Error extracting article content: {str(e)}")
-            # Try to go back to news list if we're stuck on an article
-            try:
+                # Go back to news list
                 await self.page.go_back()
                 await self.page.wait_for_selector('article', timeout=10000)
-            except Exception:
-                pass
+
+                return {
+                    'title': title,
+                    'content': content,
+                    'provider': provider,
+                    'date': date,
+                    'url': url
+                }
+
+            except Exception as e:
+                logger.warning(f"Could not get full content for {title}: {str(e)}")
+                # Try to go back if we're stuck on an article
+                try:
+                    await self.page.go_back()
+                    await self.page.wait_for_selector('article', timeout=10000)
+                except Exception:
+                    pass
+                
+                # Return article with just title/summary
+                return {
+                    'title': title,
+                    'content': title,
+                    'provider': provider,
+                    'date': date
+                }
+
+        except Exception as e:
+            logger.warning(f"Error processing article: {str(e)}")
             return None
 
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
