@@ -1,10 +1,14 @@
-FROM mcr.microsoft.com/playwright/python:v1.28.0-focal
+# Use Python 3.8 slim image
+FROM python:3.8-slim
 
-# Install system dependencies
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
-    xvfb \
-    libnss3 \
-    libnspr4 \
+    wget \
+    gnupg \
+    libgconf-2-4 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
     libcups2 \
@@ -15,27 +19,35 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxrandr2 \
     libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
     libasound2 \
-    libwayland-client0 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libnspr4 \
+    libnss3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up working directory
-WORKDIR /app
-
-# Copy requirements and install Python dependencies
+# Copy requirements first for better caching
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browser
+# Install Playwright browsers
 RUN playwright install chromium
+RUN playwright install-deps
 
-# Copy the application code
+# Copy application code
 COPY . .
 
-# Set display for Playwright
-ENV DISPLAY=:99
+# Create necessary directories
+RUN mkdir -p /tmp/downloads /tmp/logs
 
-# Start Xvfb and run the FastAPI application
-CMD Xvfb :99 -screen 0 1024x768x16 & uvicorn main:app --host 0.0.0.0 --port 8080
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+
+# Expose port
+EXPOSE 8080
+
+# Command to run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
