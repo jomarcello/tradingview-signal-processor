@@ -65,6 +65,11 @@ async def match_subscribers(
 ) -> List[str]:
     """Match signal with subscribers"""
     try:
+        # If Supabase key is not set, return empty list
+        if not settings.SUPABASE_KEY:
+            logger.warning("Supabase key not set. Skipping subscriber matching.")
+            return []
+
         response = await client.post(
             f"{settings.SUBSCRIBER_MATCHER_URL}/match-subscribers",
             json={"instrument": instrument, "timeframe": timeframe}
@@ -75,10 +80,7 @@ async def match_subscribers(
         
     except Exception as e:
         logger.error(f"Error matching subscribers: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error matching subscribers: {str(e)}"
-        )
+        return []  # Return empty list instead of raising error
 
 async def get_chart_data(
     instrument: str,
@@ -117,10 +119,10 @@ async def get_ai_analysis(
         
     except Exception as e:
         logger.error(f"Error getting AI analysis: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting AI analysis: {str(e)}"
-        )
+        return {
+            "verdict": "Analysis unavailable",
+            "risk_reward_ratio": 0.0
+        }
 
 async def format_signal_message(
     signal_data: Dict[str, Any],
@@ -138,10 +140,18 @@ async def format_signal_message(
         
     except Exception as e:
         logger.error(f"Error formatting signal: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error formatting signal: {str(e)}"
-        )
+        # Provide basic formatting if AI service fails
+        return f"""
+Signal Alert
+
+Instrument: {signal_data['instrument']}
+Action: {signal_data['direction']}
+Entry Price: {signal_data['entry_price']}
+Stop Loss: {signal_data['stop_loss']}
+Take Profit: {signal_data['take_profit']}
+Timeframe: {signal_data.get('timeframe', 'Not specified')}
+Strategy: {signal_data.get('strategy', 'Not specified')}
+        """.strip()
 
 async def send_telegram_message(
     signal_data: Dict[str, Any],
@@ -149,6 +159,10 @@ async def send_telegram_message(
     client: httpx.AsyncClient
 ) -> None:
     """Send signal to Telegram service"""
+    if not chat_ids:
+        logger.warning("No chat IDs provided. Skipping Telegram message.")
+        return
+
     try:
         response = await client.post(
             f"{settings.TELEGRAM_SERVICE_URL}/send-signal",
@@ -158,10 +172,7 @@ async def send_telegram_message(
         
     except Exception as e:
         logger.error(f"Error sending to Telegram: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error sending to Telegram: {str(e)}"
-        )
+        # Don't raise exception, just log the error
 
 @app.post("/trading-signal")
 async def process_trading_signal(
@@ -190,7 +201,7 @@ async def process_trading_signal(
         if news_result:
             signal_data["news_analysis"] = news_result.get("sentiment")
         
-        # Step 2: Match subscribers
+        # Step 2: Match subscribers (continues even if no subscribers found)
         chat_ids = await match_subscribers(signal.instrument, signal.timeframe, client)
         signal_data["chat_ids"] = chat_ids
         
@@ -199,19 +210,20 @@ async def process_trading_signal(
         if chart_data:
             signal_data["chart_data"] = chart_data
         
-        # Step 4: Get AI analysis
+        # Step 4: Get AI analysis (continues with default if fails)
         analysis_result = await get_ai_analysis(signal_data, client)
-        signal_data["ai_verdict"] = analysis_result["verdict"]
-        signal_data["risk_reward_ratio"] = analysis_result["risk_reward_ratio"]
+        signal_data["ai_verdict"] = analysis_result.get("verdict", "Analysis unavailable")
+        signal_data["risk_reward_ratio"] = analysis_result.get("risk_reward_ratio", 0.0)
         
-        # Step 5: Format message
+        # Step 5: Format message (uses basic format if AI fails)
         signal_data["formatted_message"] = await format_signal_message(signal_data, client)
         
-        # Step 6: Send to Telegram
-        await send_telegram_message(signal_data, chat_ids, client)
+        # Step 6: Send to Telegram (skips if no chat IDs)
+        if chat_ids:
+            await send_telegram_message(signal_data, chat_ids, client)
         
         monitor.log_signal_processed()
-        return {"status": "success", "message": "Signal processed and sent successfully"}
+        return {"status": "success", "message": "Signal processed successfully"}
         
     except Exception as e:
         monitor.log_error(str(e))
@@ -276,7 +288,7 @@ async def startup_event():
             
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
-        raise
+        # Don't raise the error, allow service to start with limited functionality
 
 @app.on_event("shutdown")
 async def shutdown_event():
