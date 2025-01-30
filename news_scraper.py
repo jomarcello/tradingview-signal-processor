@@ -58,7 +58,7 @@ class NewsScraper:
             instrument_lower = instrument.lower()
 
             # Navigate to ForexFactory market page for the specific instrument
-            url = f"https://www.forexfactory.com/market/{instrument_lower}"
+            url = f"https://www.forexfactory.com/news"
             try:
                 # Navigate and wait for network idle
                 await self.page.goto(url, wait_until='networkidle', timeout=60000)
@@ -68,28 +68,6 @@ class NewsScraper:
                 await self.page.wait_for_load_state('domcontentloaded')
                 await asyncio.sleep(2)  # Give JavaScript time to execute
                 
-                # Try different selectors for news content
-                selectors = [
-                    ".market__stories",
-                    ".market-content",
-                    "div[class*='stories']",
-                    "div[class*='news']"
-                ]
-                
-                content_found = False
-                for selector in selectors:
-                    try:
-                        await self.page.wait_for_selector(selector, timeout=5000)
-                        logger.info(f"Found content with selector: {selector}")
-                        content_found = True
-                        break
-                    except Exception:
-                        continue
-                
-                if not content_found:
-                    logger.error("Could not find news content with any selector")
-                    return []
-                
             except Exception as e:
                 logger.error(f"Error loading page: {str(e)}")
                 return []
@@ -97,98 +75,43 @@ class NewsScraper:
             articles = []
             articles_found = 0
 
-            # Try to find news items with different selectors
-            story_selectors = [
-                ".market__stories .story",
-                ".market-content article",
-                "div[class*='stories'] article",
-                "div[class*='news'] article"
-            ]
+            # Find all news links
+            news_links = await self.page.query_selector_all("a[href^='/news/']")
             
-            story_items = []
-            for selector in story_selectors:
-                try:
-                    items = await self.page.query_selector_all(selector)
-                    if items:
-                        story_items = items
-                        logger.info(f"Found news items with selector: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if not story_items:
-                logger.error("No news items found")
-                return []
-
-            for item in story_items:
+            for link in news_links:
                 if articles_found >= max_articles:
                     break
 
                 try:
-                    # Try different selectors for each element
-                    title = ""
-                    for title_selector in [".story__title", ".title", "h2", "h3"]:
-                        try:
-                            title_element = await item.query_selector(title_selector)
-                            if title_element:
-                                title = await title_element.text_content()
-                                title = title.strip()
-                                break
-                        except Exception:
-                            continue
-
-                    if not title:
-                        continue
-
-                    # Get source
-                    source = "ForexFactory"
-                    for source_selector in [".story__source", ".source", ".provider"]:
-                        try:
-                            source_element = await item.query_selector(source_selector)
-                            if source_element:
-                                source = await source_element.text_content()
-                                source = source.strip()
-                                break
-                        except Exception:
-                            continue
-
-                    # Get time
+                    # Get title and content from the link
+                    title = await link.text_content()
+                    title = title.strip()
+                    
+                    # Get full content from title attribute
+                    content = await link.get_attribute("title")
+                    if not content:
+                        content = title
+                    
+                    # Get href for the article ID
+                    href = await link.get_attribute("href")
+                    article_id = href.split("-")[0].split("/")[-1] if href else None
+                    
+                    # Get timestamp (we'll use current time as FF doesn't show time in the link)
                     time_str = datetime.now(pytz.UTC).isoformat()
-                    for time_selector in [".story__time", ".time", ".date"]:
-                        try:
-                            time_element = await item.query_selector(time_selector)
-                            if time_element:
-                                time_str = await time_element.text_content()
-                                time_str = time_str.strip()
-                                break
-                        except Exception:
-                            continue
-
-                    # Get content
-                    content = title  # Default to title
-                    for content_selector in [".story__content", ".content", ".description"]:
-                        try:
-                            content_element = await item.query_selector(content_selector)
-                            if content_element:
-                                content = await content_element.text_content()
-                                content = content.strip()
-                                if len(content) > len(title):  # Only use if it's longer than title
-                                    break
-                        except Exception:
-                            continue
 
                     articles.append({
                         'title': title,
                         'content': content,
-                        'source': source,
-                        'date': time_str
+                        'source': 'ForexFactory',
+                        'date': time_str,
+                        'article_id': article_id
                     })
                     
                     articles_found += 1
-                    logger.info(f"Found article from {source}: {title}")
+                    logger.info(f"Found article: {title}")
 
                 except Exception as e:
-                    logger.warning(f"Error processing story item: {str(e)}")
+                    logger.warning(f"Error processing news link: {str(e)}")
                     continue
 
             logger.info(f"Found {len(articles)} relevant articles")
