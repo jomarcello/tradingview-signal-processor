@@ -1,7 +1,7 @@
 import logging
 import traceback
 import asyncio
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import httpx
@@ -23,9 +23,9 @@ class TradingSignal(BaseModel):
     instrument: str
     action: str
     price: float
-    timestamp: str | None = None
-    strategy: str | None = None
-    timeframe: str | None = None
+    timestamp: Optional[str] = None
+    strategy: Optional[str] = None
+    timeframe: Optional[str] = None
     stoploss: float
     takeprofit: float
 
@@ -86,7 +86,7 @@ async def get_chart_data(
     instrument: str,
     timeframe: str,
     client: httpx.AsyncClient
-) -> bytes | None:
+) -> Optional[bytes]:
     """Get chart data from chart service"""
     try:
         response = await client.get(
