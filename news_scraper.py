@@ -60,11 +60,36 @@ class NewsScraper:
             # Navigate to ForexFactory market page for the specific instrument
             url = f"https://www.forexfactory.com/market/{instrument_lower}"
             try:
-                await self.page.goto(url, timeout=60000, wait_until='domcontentloaded')
+                # Navigate and wait for network idle
+                await self.page.goto(url, wait_until='networkidle', timeout=60000)
                 logger.info(f"Navigated to {url}")
                 
-                # Wait for the Latest Stories section
-                await self.page.wait_for_selector(".market__stories", timeout=60000)
+                # Wait for any content to load
+                await self.page.wait_for_load_state('domcontentloaded')
+                await asyncio.sleep(2)  # Give JavaScript time to execute
+                
+                # Try different selectors for news content
+                selectors = [
+                    ".market__stories",
+                    ".market-content",
+                    "div[class*='stories']",
+                    "div[class*='news']"
+                ]
+                
+                content_found = False
+                for selector in selectors:
+                    try:
+                        await self.page.wait_for_selector(selector, timeout=5000)
+                        logger.info(f"Found content with selector: {selector}")
+                        content_found = True
+                        break
+                    except Exception:
+                        continue
+                
+                if not content_found:
+                    logger.error("Could not find news content with any selector")
+                    return []
+                
             except Exception as e:
                 logger.error(f"Error loading page: {str(e)}")
                 return []
@@ -72,65 +97,91 @@ class NewsScraper:
             articles = []
             articles_found = 0
 
-            # Get all story items from the Latest Stories section
-            story_items = await self.page.query_selector_all(".market__stories .story")
+            # Try to find news items with different selectors
+            story_selectors = [
+                ".market__stories .story",
+                ".market-content article",
+                "div[class*='stories'] article",
+                "div[class*='news'] article"
+            ]
             
+            story_items = []
+            for selector in story_selectors:
+                try:
+                    items = await self.page.query_selector_all(selector)
+                    if items:
+                        story_items = items
+                        logger.info(f"Found news items with selector: {selector}")
+                        break
+                except Exception:
+                    continue
+
+            if not story_items:
+                logger.error("No news items found")
+                return []
+
             for item in story_items:
                 if articles_found >= max_articles:
                     break
 
                 try:
-                    # Get source
-                    source_element = await item.query_selector(".story__source")
-                    source = "Unknown"
-                    if source_element:
-                        source = await source_element.text_content()
-                        source = source.strip()
+                    # Try different selectors for each element
+                    title = ""
+                    for title_selector in [".story__title", ".title", "h2", "h3"]:
+                        try:
+                            title_element = await item.query_selector(title_selector)
+                            if title_element:
+                                title = await title_element.text_content()
+                                title = title.strip()
+                                break
+                        except Exception:
+                            continue
 
-                    # Get title
-                    title_element = await item.query_selector(".story__title")
-                    if not title_element:
+                    if not title:
                         continue
-                        
-                    title = await title_element.text_content()
-                    title = title.strip()
+
+                    # Get source
+                    source = "ForexFactory"
+                    for source_selector in [".story__source", ".source", ".provider"]:
+                        try:
+                            source_element = await item.query_selector(source_selector)
+                            if source_element:
+                                source = await source_element.text_content()
+                                source = source.strip()
+                                break
+                        except Exception:
+                            continue
 
                     # Get time
                     time_str = datetime.now(pytz.UTC).isoformat()
-                    time_element = await item.query_selector(".story__time")
-                    if time_element:
-                        time_str = await time_element.text_content()
-                        time_str = time_str.strip()
-
-                    # Get link to full article
-                    link = None
-                    link_element = await title_element.query_selector("a")
-                    if link_element:
-                        link = await link_element.get_attribute("href")
-                        if link and not link.startswith("http"):
-                            link = f"https://www.forexfactory.com{link}"
-
-                    # Get full content if link is available
-                    content = title  # Default to title
-                    if link:
+                    for time_selector in [".story__time", ".time", ".date"]:
                         try:
-                            await self.page.goto(link, timeout=30000, wait_until='domcontentloaded')
-                            content_element = await self.page.wait_for_selector(".story__content", timeout=5000)
+                            time_element = await item.query_selector(time_selector)
+                            if time_element:
+                                time_str = await time_element.text_content()
+                                time_str = time_str.strip()
+                                break
+                        except Exception:
+                            continue
+
+                    # Get content
+                    content = title  # Default to title
+                    for content_selector in [".story__content", ".content", ".description"]:
+                        try:
+                            content_element = await item.query_selector(content_selector)
                             if content_element:
                                 content = await content_element.text_content()
                                 content = content.strip()
-                            # Go back to the market page
-                            await self.page.goto(url, timeout=30000, wait_until='domcontentloaded')
-                            await self.page.wait_for_selector(".market__stories", timeout=30000)
-                        except Exception as e:
-                            logger.warning(f"Could not get full content, using title: {str(e)}")
+                                if len(content) > len(title):  # Only use if it's longer than title
+                                    break
+                        except Exception:
+                            continue
 
                     articles.append({
                         'title': title,
                         'content': content,
                         'source': source,
-                        'date': time_str,
-                        'link': link
+                        'date': time_str
                     })
                     
                     articles_found += 1
