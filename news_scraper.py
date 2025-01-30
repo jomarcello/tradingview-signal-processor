@@ -35,6 +35,66 @@ class NewsScraper:
             logger.error(f"Failed to initialize browser: {str(e)}")
             raise
 
+    async def get_article_content(self, article_element) -> Optional[Dict[str, str]]:
+        """Get full article content by clicking and extracting from the article page"""
+        try:
+            # Get provider
+            provider_element = await article_element.query_selector('.provider-TUPxzdRV')
+            if not provider_element:
+                return None
+                
+            provider = await provider_element.text_content()
+            provider = provider.lower().strip()
+            
+            if provider not in {'reuters', 'forexlive', 'dow jones newswires', 'trading economics'}:
+                return None
+                
+            # Get title and link
+            title_element = await article_element.query_selector('[data-name="news-headline-title"]')
+            if not title_element:
+                return None
+                
+            title = await title_element.text_content()
+            
+            # Get date
+            date = datetime.now(pytz.UTC).isoformat()
+            date_element = await article_element.query_selector('.date-TUPxzdRV')
+            if date_element:
+                date = await date_element.text_content()
+
+            # Click on the article to open it
+            await title_element.click()
+            await asyncio.sleep(2)  # Wait for content to load
+
+            # Try to get full article content
+            content = title  # Default to title if we can't get full content
+            try:
+                # Wait for article content with a short timeout
+                content_element = await self.page.wait_for_selector(
+                    '.content-TUPxzdRV',
+                    timeout=5000
+                )
+                if content_element:
+                    content = await content_element.text_content()
+                    content = content.strip()
+            except Exception as e:
+                logger.warning(f"Could not get full content, using title: {str(e)}")
+
+            # Go back to the news list
+            await self.page.go_back()
+            await self.page.wait_for_selector("article", timeout=5000)
+            
+            return {
+                'title': title.strip(),
+                'content': content,
+                'provider': provider,
+                'date': date
+            }
+                
+        except Exception as e:
+            logger.warning(f"Error getting article content: {str(e)}")
+            return None
+
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
         """Get news articles for a specific instrument"""
         try:
@@ -54,7 +114,7 @@ class NewsScraper:
                 'Accept-Language': 'en-US,en;q=0.9'
             })
 
-            # Navigate to TradingView news page with longer timeout and different wait strategy
+            # Navigate to TradingView news page with longer timeout
             url = f"https://www.tradingview.com/symbols/{instrument}/news/"
             try:
                 await self.page.goto(url, timeout=60000, wait_until='domcontentloaded')
@@ -70,7 +130,6 @@ class NewsScraper:
             scroll_attempts = 0
             max_scroll_attempts = 5
             articles_found = 0
-            wanted_providers = {'reuters', 'forexlive', 'dow jones newswires', 'trading economics'}
 
             # Keep scrolling until we find enough articles or reach max attempts
             while scroll_attempts < max_scroll_attempts and articles_found < max_articles:
@@ -81,51 +140,19 @@ class NewsScraper:
                 article_elements = await self.page.query_selector_all("article")
                 
                 for article in article_elements:
-                    try:
-                        # Get provider
-                        provider_element = await article.query_selector('.provider-TUPxzdRV')
-                        if not provider_element:
-                            continue
-                            
-                        provider = await provider_element.text_content()
-                        provider = provider.lower().strip()
-                        
-                        if provider not in wanted_providers:
-                            continue
-                            
-                        # Get title
-                        title_element = await article.query_selector('[data-name="news-headline-title"]')
-                        if not title_element:
-                            continue
-                            
-                        title = await title_element.text_content()
-                        
-                        # Get date if available
-                        date = datetime.now(pytz.UTC).isoformat()
-                        date_element = await article.query_selector('.date-TUPxzdRV')
-                        if date_element:
-                            date = await date_element.text_content()
-                        
+                    if articles_found >= max_articles:
+                        break
+
+                    article_data = await self.get_article_content(article)
+                    if article_data:
                         # Only add if we haven't seen this title before
-                        if not any(a['title'] == title for a in articles):
-                            articles.append({
-                                'title': title.strip(),
-                                'content': title.strip(),  # Use title as content since full content requires login
-                                'provider': provider,
-                                'date': date
-                            })
+                        if not any(a['title'] == article_data['title'] for a in articles):
+                            articles.append(article_data)
                             articles_found += 1
-                            logger.info(f"Found article from {provider}: {title}")
-                            
-                            if articles_found >= max_articles:
-                                logger.info(f"Found {max_articles} articles, stopping search")
-                                break
-                                
-                    except Exception as e:
-                        logger.warning(f"Error processing article: {str(e)}")
-                        continue
+                            logger.info(f"Found article from {article_data['provider']}: {article_data['title']}")
 
                 if articles_found >= max_articles:
+                    logger.info(f"Found {max_articles} articles, stopping search")
                     break
 
                 # Scroll down
