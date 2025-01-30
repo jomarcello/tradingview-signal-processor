@@ -1,6 +1,7 @@
 import logging
 import traceback
 import asyncio
+import base64
 from typing import List, Dict, Any, Optional, Union
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
@@ -86,7 +87,7 @@ async def get_chart_data(
     instrument: str,
     timeframe: str,
     client: httpx.AsyncClient
-) -> Optional[bytes]:
+) -> Optional[str]:
     """Get chart data from chart service"""
     try:
         response = await client.get(
@@ -98,7 +99,8 @@ async def get_chart_data(
             }
         )
         response.raise_for_status()
-        return response.content
+        # Convert bytes to base64 string for JSON serialization
+        return base64.b64encode(response.content).decode('utf-8')
         
     except Exception as e:
         logger.error(f"Error getting chart: {str(e)}")
@@ -110,9 +112,14 @@ async def get_ai_analysis(
 ) -> Dict[str, Any]:
     """Get AI analysis of the signal"""
     try:
+        # Create a copy of signal_data without chart_data for AI analysis
+        analysis_data = signal_data.copy()
+        if 'chart_data' in analysis_data:
+            del analysis_data['chart_data']
+
         response = await client.post(
             f"{settings.SIGNAL_AI_SERVICE_URL}/analyze-signal",
-            json=signal_data
+            json=analysis_data
         )
         response.raise_for_status()
         return response.json()
@@ -130,9 +137,14 @@ async def format_signal_message(
 ) -> str:
     """Get formatted signal message"""
     try:
+        # Create a copy of signal_data without chart_data for message formatting
+        message_data = signal_data.copy()
+        if 'chart_data' in message_data:
+            del message_data['chart_data']
+
         response = await client.post(
             f"{settings.SIGNAL_AI_SERVICE_URL}/format-signal",
-            json=signal_data
+            json=message_data
         )
         response.raise_for_status()
         result = response.json()
