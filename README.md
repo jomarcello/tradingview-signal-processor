@@ -1,83 +1,168 @@
 # TradingView Signal Processor
 
-A FastAPI service that processes TradingView signals, enriches them with news data and sentiment analysis, and forwards them to n8n.
+This service processes trading signals from TradingView, enriches them with news and AI analysis, and distributes them to subscribers through Telegram.
 
 ## Features
 
-- Receives trading signals from TradingView
-- Scrapes latest news for the trading pair
-- Performs sentiment analysis on the news
-- Forwards enriched data to n8n for further processing
+- Trading signal processing and distribution
+- Real-time news scraping from TradingView
+- AI-powered signal analysis
+- Subscriber matching and notification
+- Technical chart generation
+- System monitoring and health checks
+- Proxy support for reliable scraping
 
-## API Endpoints
+## Architecture Improvements
 
-### POST `/trading-signal`
+1. **Code Organization**
+   - Modular structure with separate components
+   - Configuration management using environment variables
+   - Clear separation of concerns
 
-Receives trading signals and processes them.
+2. **Reliability**
+   - Proxy rotation for stable scraping
+   - Proper error handling and recovery
+   - Request retries with backoff
+   - System monitoring and health checks
 
-Example request:
-```json
-{
-    "instrument": "EURUSD",
-    "action": "buy",
-    "price": 1.2345,
-    "timestamp": "2025-01-23T10:30:00Z"
-}
-```
+3. **Security**
+   - Environment-based configuration
+   - SSL verification enabled
+   - No hardcoded credentials
+   - Proper API authentication
 
-Example response:
-```json
-{
-    "status": "success",
-    "message": "Signal processed and sent to n8n",
-    "data": {
-        "signal": {
-            "instrument": "EURUSD",
-            "action": "buy",
-            "price": 1.2345,
-            "timestamp": "2025-01-23T10:30:00Z"
-        },
-        "news": {
-            "title": "EUR/USD rises on positive economic data",
-            "content": "The EUR/USD pair showed strength today...",
-            "url": "https://www.tradingview.com/news/..."
-        },
-        "sentiment": {
-            "score": 0.75,
-            "label": "bullish",
-            "bullish_words": 3,
-            "bearish_words": 1
-        }
-    }
-}
-```
-
-### GET `/health`
-
-Health check endpoint.
+4. **Performance**
+   - Async operations
+   - Connection pooling
+   - Resource cleanup
+   - Optimized browser automation
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill in your n8n webhook URL:
-```bash
-cp .env.example .env
-```
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-playwright install chromium
-```
+2. Install Playwright browsers:
+   ```bash
+   playwright install chromium
+   ```
 
-3. Run the server:
-```bash
-uvicorn main:app --reload
-```
+3. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
 
-## Deployment
-
-This project is set up for deployment on Railway.app through GitHub integration.
+4. Run the service:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+   ```
 
 ## Environment Variables
 
-- `N8N_WEBHOOK_URL`: Your n8n webhook URL where the processed data should be sent
+Required environment variables:
+
+- `SUPABASE_KEY`: Your Supabase API key
+- `SIGNAL_AI_SERVICE_URL`: URL for the AI analysis service
+- `NEWS_AI_SERVICE_URL`: URL for the news analysis service
+- `SUBSCRIBER_MATCHER_URL`: URL for the subscriber matching service
+- `TELEGRAM_SERVICE_URL`: URL for the Telegram service
+- `CHART_SERVICE_URL`: URL for the chart service
+
+Optional environment variables:
+
+- `PROXY_URL`: Proxy service URL
+- `PROXY_USERNAME`: Proxy service username
+- `PROXY_PASSWORD`: Proxy service password
+- `LOG_LEVEL`: Logging level (default: INFO)
+- `ENABLE_MONITORING`: Enable system monitoring (default: true)
+- `MAX_RETRIES`: Maximum retry attempts (default: 3)
+- `REQUEST_TIMEOUT`: Request timeout in seconds (default: 60)
+
+## API Endpoints
+
+### POST /trading-signal
+Process a new trading signal
+
+Request body:
+```json
+{
+    "instrument": "EURUSD",
+    "action": "BUY",
+    "price": 1.2345,
+    "stoploss": 1.2300,
+    "takeprofit": 1.2400,
+    "timeframe": "1h",
+    "strategy": "MA Crossover",
+    "timestamp": "2024-01-30T12:00:00Z"
+}
+```
+
+### GET /get-news
+Get news articles for an instrument
+
+Query parameters:
+- `instrument`: Trading instrument (e.g., "EURUSD")
+
+### GET /health
+Get service health status
+
+### GET /metrics
+Get service metrics
+
+## Monitoring
+
+The service includes comprehensive monitoring:
+
+- Request success/failure rates
+- News scraping statistics
+- System resource usage
+- Error tracking
+- Performance metrics
+
+Access monitoring data through the `/metrics` endpoint.
+
+## Error Handling
+
+The service implements proper error handling:
+
+- Request retries with exponential backoff
+- Graceful degradation for non-critical failures
+- Detailed error logging
+- Error reporting through monitoring
+
+## Development
+
+1. Install development dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Run tests:
+   ```bash
+   pytest
+   ```
+
+3. Format code:
+   ```bash
+   black .
+   ```
+
+4. Lint code:
+   ```bash
+   flake8
+   ```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests
+5. Submit a pull request
+
+## License
+
+MIT License
