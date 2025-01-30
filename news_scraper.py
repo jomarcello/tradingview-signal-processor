@@ -36,7 +36,7 @@ class NewsScraper:
             raise
 
     async def get_news(self, instrument: str, max_articles: int = 3) -> List[Dict[str, str]]:
-        """Get news articles from ForexFactory"""
+        """Get news articles from ForexFactory market page"""
         try:
             if not self.browser:
                 await self.initialize()
@@ -54,97 +54,90 @@ class NewsScraper:
                 'Accept-Language': 'en-US,en;q=0.9'
             })
 
-            # Navigate to ForexFactory news page
-            url = "https://www.forexfactory.com/news"
+            # Format instrument for URL (e.g., EURUSD -> eurusd)
+            instrument_lower = instrument.lower()
+
+            # Navigate to ForexFactory market page for the specific instrument
+            url = f"https://www.forexfactory.com/market/{instrument_lower}"
             try:
                 await self.page.goto(url, timeout=60000, wait_until='domcontentloaded')
                 logger.info(f"Navigated to {url}")
                 
-                # Wait for content
-                await self.page.wait_for_selector(".ff-news-headlines", timeout=60000)
+                # Wait for the Latest Stories section
+                await self.page.wait_for_selector(".market__stories", timeout=60000)
             except Exception as e:
                 logger.error(f"Error loading page: {str(e)}")
                 return []
 
-            # Get currency pair components (e.g., EUR/USD -> EUR and USD)
-            currency1 = instrument[:3]
-            currency2 = instrument[3:] if len(instrument) > 3 else None
-
             articles = []
             articles_found = 0
 
-            # Get all news items
-            news_items = await self.page.query_selector_all(".ff-news-headlines .headline")
+            # Get all story items from the Latest Stories section
+            story_items = await self.page.query_selector_all(".market__stories .story")
             
-            for item in news_items:
+            for item in story_items:
                 if articles_found >= max_articles:
                     break
 
                 try:
-                    # Get currency tag
-                    currency_element = await item.query_selector(".currency")
-                    if not currency_element:
-                        continue
-                        
-                    currencies = await currency_element.text_content()
-                    currencies = currencies.upper().strip()
-                    
-                    # Check if the news is relevant for our currency pair
-                    if currency1 not in currencies and (not currency2 or currency2 not in currencies):
-                        continue
+                    # Get source
+                    source_element = await item.query_selector(".story__source")
+                    source = "Unknown"
+                    if source_element:
+                        source = await source_element.text_content()
+                        source = source.strip()
 
                     # Get title
-                    title_element = await item.query_selector(".title")
+                    title_element = await item.query_selector(".story__title")
                     if not title_element:
                         continue
                         
                     title = await title_element.text_content()
-                    
-                    # Get impact
-                    impact = "medium"  # default
-                    impact_element = await item.query_selector(".impact")
-                    if impact_element:
-                        impact_class = await impact_element.get_attribute("class")
-                        if "high" in impact_class:
-                            impact = "high"
-                        elif "low" in impact_class:
-                            impact = "low"
+                    title = title.strip()
 
                     # Get time
                     time_str = datetime.now(pytz.UTC).isoformat()
-                    time_element = await item.query_selector(".date")
+                    time_element = await item.query_selector(".story__time")
                     if time_element:
                         time_str = await time_element.text_content()
+                        time_str = time_str.strip()
 
-                    # Click to get full content
-                    await title_element.click()
-                    await asyncio.sleep(2)
+                    # Get link to full article
+                    link = None
+                    link_element = await title_element.query_selector("a")
+                    if link_element:
+                        link = await link_element.get_attribute("href")
+                        if link and not link.startswith("http"):
+                            link = f"https://www.forexfactory.com{link}"
 
-                    # Get full content
+                    # Get full content if link is available
                     content = title  # Default to title
-                    content_element = await self.page.wait_for_selector(".ff-news-content", timeout=5000)
-                    if content_element:
-                        content = await content_element.text_content()
-                        content = content.strip()
+                    if link:
+                        try:
+                            await self.page.goto(link, timeout=30000, wait_until='domcontentloaded')
+                            content_element = await self.page.wait_for_selector(".story__content", timeout=5000)
+                            if content_element:
+                                content = await content_element.text_content()
+                                content = content.strip()
+                            # Go back to the market page
+                            await self.page.goto(url, timeout=30000, wait_until='domcontentloaded')
+                            await self.page.wait_for_selector(".market__stories", timeout=30000)
+                        except Exception as e:
+                            logger.warning(f"Could not get full content, using title: {str(e)}")
 
                     articles.append({
-                        'title': title.strip(),
+                        'title': title,
                         'content': content,
-                        'impact': impact,
+                        'source': source,
                         'date': time_str,
-                        'currencies': currencies,
-                        'provider': 'ForexFactory'
+                        'link': link
                     })
                     
                     articles_found += 1
-                    logger.info(f"Found article: {title} (Impact: {impact})")
-
-                    # Go back to news list
-                    await self.page.go_back()
-                    await self.page.wait_for_selector(".ff-news-headlines", timeout=5000)
+                    logger.info(f"Found article from {source}: {title}")
 
                 except Exception as e:
-                    logger.warning(f"Error processing news item: {str(e)}")
+                    logger.warning(f"Error processing story item: {str(e)}")
                     continue
 
             logger.info(f"Found {len(articles)} relevant articles")
