@@ -1,30 +1,30 @@
-FROM python:3.9-slim
+FROM ubuntu:20.04
 
-WORKDIR /app
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PORT=8000
 
-# Installeer systeemafhankelijkheden
+# Installeer Python en dependencies
 RUN apt-get update && apt-get install -y \
+    python3.9 \
+    python3-pip \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Kopieer requirements
+WORKDIR /app
+
+# Upgrade pip
+RUN python3.9 -m pip install --upgrade pip
+
+# Kopieer en installeer requirements
 COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Installeer Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Kopieer de applicatiecode
+# Kopieer applicatie bestanden
 COPY . .
 
-# Verhoog de memory limit
-ENV MALLOC_ARENA_MAX=2
-
-# Stel default port in
-ENV PORT=8000
-
-# Kopieer en maak het start script uitvoerbaar
-COPY start.sh .
+# Maak start script uitvoerbaar
 RUN chmod +x start.sh
 
-# Start command
-CMD ["./start.sh"] 
+# Start via shell om environment variabelen correct te verwerken
+CMD ["/bin/bash", "./start.sh"] 
