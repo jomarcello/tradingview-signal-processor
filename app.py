@@ -2,11 +2,15 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import os
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///Database_luxuryrentals.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+
+# Voeg deze regel toe bovenaan na de imports
+port = int(os.getenv('PORT', 8000))
 
 # Define the Leads model
 class Lead(db.Model):
@@ -82,6 +86,6 @@ def generate_code():
     return jsonify({'response': response})
 
 if __name__ == '__main__':
-    with app.app_context():  # Fix: Add application context
+    with app.app_context():
         db.create_all()
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=port)
