@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modern Dashboard</title>
+  <link rel="stylesheet" href="node_modules/bootstrap/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      background-color: #121212;
+      color: #ffffff;
+    }
+    .card {
+      background-color: #1c1c1e;
+      border: none;
+    }
+    .sidebar {
+      height: 100vh;
+      background-color: #181818;
+      color: #ffffff;
+    }
+    .sidebar a {
+      color: #ffffff;
+      text-decoration: none;
+      margin: 10px 0;
+      display: block;
+    }
+    .sidebar a:hover {
+      color: #0d6efd;
+    }
+    .navbar {
+      background-color: #1c1c1e;
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <div class="d-flex">
+    <div class="sidebar p-3">
+      <h3 class="mb-4">Dashbrd</h3>
+      <a href="#">Dashboard</a>
+      <a href="#">Crypto</a>
+      <a href="#">SaaS</a>
+      <hr>
+      <a href="#">Customers</a>
+      <a href="#">Projects</a>
+      <a href="#">Account</a>
+      <a href="#">Orders</a>
+      <a href="#">Posts</a>
+      <a href="#">Authentication</a>
+      <hr>
+      <small class="text-muted">Documentation</small>
+      <a href="#">Getting Started</a>
+      <a href="#">Components</a>
+      <a href="#">Changelog</a>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-grow-1">
+      <!-- Navbar -->
+      <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+          <a class="navbar-brand" href="#">Hello, John</a>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- Dashboard Content -->
+      <div class="container-fluid mt-4">
+        <div class="row">
+          <!-- Dashboard Cards -->
+          <div class="col-md-3">
+            <div class="card p-3">
+              <h5>Earned</h5>
+              <h2>$1,250</h2>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3">
+              <h5>Hours Logged</h5>
+              <h2>35.5 hrs</h2>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3">
+              <h5>Avg. Time</h5>
+              <h2>2:55 hrs</h2>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card p-3">
+              <h5>Weekly Growth</h5>
+              <h2>14.5%</h2>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance Graph -->
+        <div class="row mt-4">
+          <div class="col-md-8">
+            <div class="card p-4">
+              <h5>Performance</h5>
+              <canvas id="performanceChart"></canvas>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card p-4">
+              <h5>Goals</h5>
+              <ul class="list-group list-group-flush">
+                <li class="list-group-item bg-transparent text-white">Increase Monthly Revenue</li>
+                <li class="list-group-item bg-transparent text-white">Launch New Feature</li>
+                <li class="list-group-item bg-transparent text-white">Grow User Base</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="row mt-4">
+          <div class="col-md-12">
+            <div class="card p-4">
+              <h5>Recent Activity</h5>
+              <table class="table table-dark table-hover">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Update Dashboard</td>
+                    <td>In Progress</td>
+                    <td>50%</td>
+                  </tr>
+                  <tr>
+                    <td>Launch Campaign</td>
+                    <td>Completed</td>
+                    <td>100%</td>
+                  </tr>
+                  <tr>
+                    <td>Fix Bugs</td>
+                    <td>In Progress</td>
+                    <td>75%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap & Chart.js -->
+  <script src="node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Chart.js Example
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          label: 'Hours',
+          data: [7, 8, 6, 5, 9, 4, 3],
+          backgroundColor: '#0d6efd',
+        }]
+      },
+      options: {
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

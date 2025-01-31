@@ -1,0 +1,1 @@
+// Toekomstige JavaScript functionaliteit komt hier

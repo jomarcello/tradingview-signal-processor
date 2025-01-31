@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Email Template</h5>
+                    <form id="templateForm">
+                        <div class="mb-3">
+                            <label class="form-label">Template Naam</label>
+                            <input type="text" class="form-control" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Onderwerp</label>
+                            <input type="text" class="form-control" name="subject" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email Inhoud</label>
+                            <div id="editor" style="height: 300px;"></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Template Opslaan</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Campagne Planning</h5>
+                    <form id="campaignForm">
+                        <div class="mb-3">
+                            <label class="form-label">Campagne Naam</label>
+                            <input type="text" class="form-control" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Template</label>
+                            <select class="form-select" name="template_id" required>
+                                <!-- JavaScript vult dit -->
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Planning</label>
+                            <input type="datetime-local" class="form-control" name="scheduled_at">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Campagne Aanmaken</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/campaigns.js') }}"></script>
+{% endblock %} 

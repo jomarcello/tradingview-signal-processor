@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/dragula@3.7.3/dist/dragula.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Filters en Zoeken -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="input-group">
+                <input type="text" id="searchInput" class="form-control" placeholder="Zoek leads...">
+                <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#filterModal">
+                    <i class="fas fa-filter"></i> Filters
+                </button>
+            </div>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importModal">
+                <i class="fas fa-file-import"></i> Importeer CSV
+            </button>
+            <button class="btn btn-success" id="addLeadBtn">
+                <i class="fas fa-plus"></i> Nieuwe Lead
+            </button>
+        </div>
+    </div>
+
+    <!-- Kanban Board -->
+    <div class="row" id="kanbanBoard">
+        <!-- New Leads -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    Nieuwe Leads
+                    <span class="badge bg-light text-dark float-end" id="newLeadsCount">0</span>
+                </div>
+                <div class="card-body kanban-container" id="newLeads">
+                    <!-- Leads worden hier dynamisch toegevoegd -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Contacted -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    Gecontacteerd
+                    <span class="badge bg-light text-dark float-end" id="contactedCount">0</span>
+                </div>
+                <div class="card-body kanban-container" id="contacted">
+                    <!-- Leads worden hier dynamisch toegevoegd -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Follow Up -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    Follow Up
+                    <span class="badge bg-light text-dark float-end" id="followUpCount">0</span>
+                </div>
+                <div class="card-body kanban-container" id="followUp">
+                    <!-- Leads worden hier dynamisch toegevoegd -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Hot Leads -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    Hot Leads
+                    <span class="badge bg-light text-dark float-end" id="hotLeadsCount">0</span>
+                </div>
+                <div class="card-body kanban-container" id="hotLeads">
+                    <!-- Leads worden hier dynamisch toegevoegd -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Lead Card Template (verborgen) -->
+<template id="leadCardTemplate">
+    <div class="card mb-2 lead-card" data-lead-id="">
+        <div class="card-body p-2">
+            <h6 class="card-title mb-1"></h6>
+            <p class="card-text small mb-1">
+                <i class="fab fa-instagram"></i> <span class="instagram-username"></span>
+            </p>
+            <p class="card-text small mb-1">
+                <i class="fas fa-envelope"></i> <span class="email"></span>
+            </p>
+            <div class="engagement-score small">
+                <i class="fas fa-chart-line"></i> Score: <span class="score"></span>
+            </div>
+            <div class="btn-group btn-group-sm mt-2">
+                <button class="btn btn-outline-primary btn-edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-outline-info btn-comment">
+                    <i class="fas fa-comment"></i>
+                </button>
+                <button class="btn btn-outline-success btn-email">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</template>
+
+{% include 'leads/modals/filter_modal.html' %}
+{% include 'leads/modals/import_modal.html' %}
+{% include 'leads/modals/lead_modal.html' %}
+{% include 'leads/modals/comment_modal.html' %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/dragula@3.7.3/dist/dragula.min.js"></script>
+<script src="{{ url_for('static', filename='js/leads.js') }}"></script>
+{% endblock %}

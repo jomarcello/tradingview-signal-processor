@@ -1,0 +1,12 @@
+services:
+  ai-news-processor:
+    image: ghcr.io/jomarcello/ai-news-processor:latest
+    env_file: .env
+  
+  ai-signal-processor:
+    image: ghcr.io/jomarcello/ai-signal-processor:latest
+    env_file: .env
+  
+  subscriber-matcher:
+    image: ghcr.io/jomarcello/subscriber-matcher:latest
+    env_file: .env 

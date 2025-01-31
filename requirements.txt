@@ -4,7 +4,7 @@ flask-migrate==4.0.5
 python-dotenv==1.0.0
 pymongo==4.6.1
 beautifulsoup4==4.12.2
-deepseek-coder
-torch
-transformers
+transformers==4.37.2
+torch==2.2.0
+accelerate==0.27.2
 gunicorn==21.2.0

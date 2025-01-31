@@ -17,10 +17,29 @@ class Lead(db.Model):
     city = db.Column(db.String(50))
     email_opened = db.Column(db.Boolean, default=False)
 
-# Model initialisatie
+# Update model initialisatie
 model_name = "deepseek-ai/deepseek-coder-6.7b-base"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+try:
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto"
+    )
+except Exception as e:
+    print(f"Error loading model: {e}")
+    # Fallback naar een kleiner model indien nodig
+    model_name = "deepseek-ai/deepseek-coder-1.3b-base"
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        device_map="auto"
+    )
 
 # Home route
 @app.route('/')

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Statistieken Cards -->
+    <div class="row g-4 mb-4">
+        <div class="col-xl-3 col-sm-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Totaal Leads</h5>
+                    <h2 class="mb-0">{{ stats.total_leads }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Verzonden Emails</h5>
+                    <h2 class="mb-0">{{ stats.total_emails }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Open Rate</h5>
+                    <h2 class="mb-0">{{ stats.open_rate }}%</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-sm-6">
+            <div class="card glass-card">
+                <div class="card-body">
+                    <h5 class="card-title">Click Rate</h5>
+                    <h2 class="mb-0">{{ stats.click_rate }}%</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leads Tabel -->
+    <div class="card glass-card">
+        <div class="card-body">
+            <h5 class="card-title">Recent Leads</h5>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Naam</th>
+                            <th>Email</th>
+                            <th>Instagram</th>
+                            <th>Datum Toegevoegd</th>
+                            <th>Acties</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leads-table-body">
+                        <!-- JavaScript zal deze vullen -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSS voor Glassmorphism -->
+<style>
+.glass-card {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.glass-card:hover {
+    transform: translateY(-5px);
+    transition: all 0.3s ease;
+}
+</style>
+{% endblock %} 

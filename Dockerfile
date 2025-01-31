@@ -19,5 +19,8 @@ COPY . .
 # Expose de port die uw applicatie gebruikt
 EXPOSE 8000
 
+# Verhoog de memory limit
+ENV MALLOC_ARENA_MAX=2
+
 # Start command
-CMD ["python", "app.py"] 
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "300", "--workers", "1", "app:app"] 

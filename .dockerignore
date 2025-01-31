@@ -1,0 +1,141 @@
+# flyctl launch added from .gitignore
+**/.env
+**/*.env
+venv/ 
+
+# flyctl launch added from mijn-dashboard/.gitignore
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+mijn-dashboard/node_modules
+mijn-dashboard/.pnp
+mijn-dashboard/**/.pnp.*
+mijn-dashboard/**/.yarn/*
+!mijn-dashboard/**/.yarn/patches
+!mijn-dashboard/**/.yarn/plugins
+!mijn-dashboard/**/.yarn/releases
+!mijn-dashboard/**/.yarn/versions
+
+# testing
+mijn-dashboard/coverage
+
+# next.js
+mijn-dashboard/.next
+mijn-dashboard/out
+
+# production
+mijn-dashboard/build
+
+# misc
+mijn-dashboard/**/.DS_Store
+mijn-dashboard/**/*.pem
+
+# debug
+mijn-dashboard/**/npm-debug.log*
+mijn-dashboard/**/yarn-debug.log*
+mijn-dashboard/**/yarn-error.log*
+
+# env files (can opt-in for committing if needed)
+mijn-dashboard/**/.env*
+
+# vercel
+mijn-dashboard/**/.vercel
+
+# typescript
+mijn-dashboard/**/*.tsbuildinfo
+mijn-dashboard/**/next-env.d.ts
+
+# flyctl launch added from myenv/.gitignore
+# Created by venv; see https://docs.python.org/3/library/venv.html
+myenv/**/*
+
+# flyctl launch added from tradingview-signal-processor/.gitignore
+# Python
+tradingview-signal-processor/**/__pycache__
+tradingview-signal-processor/**/*.py[cod]
+tradingview-signal-processor/**/*$py.class
+tradingview-signal-processor/**/*.so
+tradingview-signal-processor/**/.Python
+tradingview-signal-processor/**/env
+tradingview-signal-processor/**/build
+tradingview-signal-processor/**/develop-eggs
+tradingview-signal-processor/**/dist
+tradingview-signal-processor/**/downloads
+tradingview-signal-processor/**/eggs
+tradingview-signal-processor/**/.eggs
+tradingview-signal-processor/**/lib
+tradingview-signal-processor/**/lib64
+tradingview-signal-processor/**/parts
+tradingview-signal-processor/**/sdist
+tradingview-signal-processor/**/var
+tradingview-signal-processor/**/wheels
+tradingview-signal-processor/**/*.egg-info
+tradingview-signal-processor/**/.installed.cfg
+tradingview-signal-processor/**/*.egg
+
+# Virtual Environment
+tradingview-signal-processor/**/venv
+tradingview-signal-processor/**/ENV
+
+# IDE
+tradingview-signal-processor/**/.idea
+tradingview-signal-processor/**/.vscode
+tradingview-signal-processor/**/*.swp
+tradingview-signal-processor/**/*.swo
+
+# Logs
+tradingview-signal-processor/**/*.log
+
+# Local development settings
+tradingview-signal-processor/**/.env
+tradingview-signal-processor/**/.env.local
+
+# flyctl launch added from tradingview-signal-processor/tradingview-signal-processor/.gitignore
+# Python
+tradingview-signal-processor/tradingview-signal-processor/**/__pycache__
+tradingview-signal-processor/tradingview-signal-processor/**/*.py[cod]
+tradingview-signal-processor/tradingview-signal-processor/**/*$py.class
+tradingview-signal-processor/tradingview-signal-processor/**/*.so
+tradingview-signal-processor/tradingview-signal-processor/**/.Python
+tradingview-signal-processor/tradingview-signal-processor/**/env
+tradingview-signal-processor/tradingview-signal-processor/**/build
+tradingview-signal-processor/tradingview-signal-processor/**/develop-eggs
+tradingview-signal-processor/tradingview-signal-processor/**/dist
+tradingview-signal-processor/tradingview-signal-processor/**/downloads
+tradingview-signal-processor/tradingview-signal-processor/**/eggs
+tradingview-signal-processor/tradingview-signal-processor/**/.eggs
+tradingview-signal-processor/tradingview-signal-processor/**/lib
+tradingview-signal-processor/tradingview-signal-processor/**/lib64
+tradingview-signal-processor/tradingview-signal-processor/**/parts
+tradingview-signal-processor/tradingview-signal-processor/**/sdist
+tradingview-signal-processor/tradingview-signal-processor/**/var
+tradingview-signal-processor/tradingview-signal-processor/**/wheels
+tradingview-signal-processor/tradingview-signal-processor/**/*.egg-info
+tradingview-signal-processor/tradingview-signal-processor/**/.installed.cfg
+tradingview-signal-processor/tradingview-signal-processor/**/*.egg
+
+# Virtual Environment
+tradingview-signal-processor/tradingview-signal-processor/**/venv
+tradingview-signal-processor/tradingview-signal-processor/**/ENV
+
+# IDE
+tradingview-signal-processor/tradingview-signal-processor/**/.idea
+tradingview-signal-processor/tradingview-signal-processor/**/.vscode
+tradingview-signal-processor/tradingview-signal-processor/**/*.swp
+tradingview-signal-processor/tradingview-signal-processor/**/*.swo
+
+# Logs
+tradingview-signal-processor/tradingview-signal-processor/**/*.log
+
+# Local development settings
+tradingview-signal-processor/tradingview-signal-processor/**/.env
+tradingview-signal-processor/tradingview-signal-processor/**/.env.local
+
+# flyctl launch added from tradingview-signal-processor/venv/.gitignore
+# Created by venv; see https://docs.python.org/3/library/venv.html
+tradingview-signal-processor/venv/**/*
+
+# flyctl launch added from venv/.gitignore
+# Created by venv; see https://docs.python.org/3/library/venv.html
+venv/**/*
+fly.toml

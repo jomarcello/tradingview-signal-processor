@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer List</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f9f9f9;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 20px auto;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px;
+    }
+    th {
+      background-color: #f4f4f4;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    .status-up {
+      color: green;
+    }
+    .status-down {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Customer List</h1>
+    <table border="1">
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Email</th>
+          <th>Purchase</th>
+          <th>Lifetime</th>
+          <th>Comments</th>
+          <th>Likes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Chelsie Haley</td>
+          <td>chelsie@ui8.net</td>
+          <td>4</td>
+          <td class="status-down">$384 <span class="status-down">▼ 12.8%</span></td>
+          <td>8</td>
+          <td>16</td>
+        </tr>
+        <tr>
+          <td>Filomena Fahey</td>
+          <td>fahey.designer@robot.co</td>
+          <td>12</td>
+          <td class="status-up">$223 <span class="status-up">▲ 2.8%</span></td>
+          <td>14</td>
+          <td>6</td>
+        </tr>
+        <tr>
+          <td>Orion Luettgen</td>
+          <td>orion88@yahoo.com</td>
+          <td>4</td>
+          <td class="status-down">$384 <span class="status-down">▼ 12.8%</span></td>
+          <td>8</td>
+          <td>16</td>
+        </tr>
+        <tr>
+          <td>Brown Beatty</td>
+          <td>brown.be@gmail.com</td>
+          <td>12</td>
+          <td class="status-up">$223 <span class="status-up">▲ 2.8%</span></td>
+          <td>14</td>
+          <td>6</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html> 

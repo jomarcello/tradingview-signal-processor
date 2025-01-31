@@ -1,0 +1,11 @@
+{
+  "build": {
+    "nixpacksPlan": {
+      "phases": {
+        "setup": {
+          "nixPackages": ["chromium", "libglvnd"]
+        }
+      }
+    }
+  }
+} 

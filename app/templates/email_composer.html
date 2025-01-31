@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="card glass-card">
+        <div class="card-body">
+            <h5 class="card-title">Email Template Maken</h5>
+            <form id="templateForm">
+                <div class="mb-3">
+                    <label class="form-label">Template Naam</label>
+                    <input type="text" class="form-control" name="name" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Onderwerp</label>
+                    <input type="text" class="form-control" name="subject" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Email Inhoud</label>
+                    <div id="editor"><!-- Rich text editor hier --></div>
+                </div>
+                <div class="mb-3">
+                    <h6>Beschikbare Variabelen:</h6>
+                    <code>{name}</code> - Naam van de lead<br>
+                    <code>{instagram}</code> - Instagram gebruikersnaam
+                </div>
+                <button type="submit" class="btn btn-primary">Template Opslaan</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card glass-card mt-4">
+        <div class="card-body">
+            <h5 class="card-title">Campagne Planning</h5>
+            <form id="campaignForm">
+                <div class="mb-3">
+                    <label class="form-label">Campagne Naam</label>
+                    <input type="text" class="form-control" name="name" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Template Selecteren</label>
+                    <select class="form-select" name="template_id" required>
+                        <!-- JavaScript vult dit -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Planning (optioneel)</label>
+                    <input type="datetime-local" class="form-control" name="scheduled_at">
+                </div>
+                <button type="submit" class="btn btn-primary">Campagne Aanmaken</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// JavaScript voor form handling en rich text editor initialisatie
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialiseer rich text editor
+    const editor = new Quill('#editor', {
+        theme: 'snow',
+        modules: {
+            toolbar: [
+                ['bold', 'italic', 'underline'],
+                ['link', 'image'],
+                [{ 'list': 'ordered'}, { 'list': 'bullet' }]
+            ]
+        }
+    });
+    
+    // Form submission handlers hier
+});
+</script>
+{% endblock %} 

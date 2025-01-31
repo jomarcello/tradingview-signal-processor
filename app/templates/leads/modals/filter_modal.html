@@ -1,0 +1,42 @@
+<div class="modal fade" id="filterModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Filter Leads</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="filterForm">
+                    <div class="mb-3">
+                        <label class="form-label">Engagement Score</label>
+                        <select class="form-select" name="engagement">
+                            <option value="">Alle scores</option>
+                            <option value="high">Hoog (3+)</option>
+                            <option value="medium">Medium (2)</option>
+                            <option value="low">Laag (0-1)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email Status</label>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" name="emailOpened" value="true">
+                            <label class="form-check-label">Email geopend</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" name="linkClicked" value="true">
+                            <label class="form-check-label">Link geklikt</label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Datum toegevoegd</label>
+                        <input type="date" class="form-control" name="dateAdded">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Sluiten</button>
+                <button type="button" class="btn btn-primary" onclick="applyFilters()">Toepassen</button>
+            </div>
+        </div>
+    </div>
+</div> 

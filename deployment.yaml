@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-processor
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: app
+        image: ghcr.io/jomarcello/tradingview-signal-processor:latest
+        envFrom:
+        - secretRef:
+            name: signal-processor-secrets 
