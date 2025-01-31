@@ -19,8 +19,12 @@ COPY . .
 # Verhoog de memory limit
 ENV MALLOC_ARENA_MAX=2
 
-# Stel default port in voor het geval $PORT niet beschikbaar is
+# Stel default port in
 ENV PORT=8000
 
-# Start command met PORT environment variable
-CMD gunicorn --bind 0.0.0.0:${PORT} --timeout 300 --workers 1 app:app 
+# Kopieer en maak het start script uitvoerbaar
+COPY start.sh .
+RUN chmod +x start.sh
+
+# Start command
+CMD ["./start.sh"] 
