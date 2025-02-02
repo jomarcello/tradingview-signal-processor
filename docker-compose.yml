@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    deploy:
+      replicas: 2
+
+  signal-processor:
+    build: ./services/signal-processor
+    deploy:
+      replicas: 3
+    environment:
+      - RABBITMQ_URL=amqp://rabbitmq
+      - REDIS_URL=redis://redis
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  existing-service:
+    build: ./services/existing-service
+    environment:
+      - RABBITMQ_URL=amqp://rabbitmq
+      - REDIS_URL=redis://redis
+    depends_on:
+      - rabbitmq
+      - redis 

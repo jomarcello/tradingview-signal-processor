@@ -44,4 +44,7 @@ npm-debug.log
 *.csv
 *.xlsx
 *.numbers
-vendor/ 
+vendor/
+
+# New additions
+.env 
